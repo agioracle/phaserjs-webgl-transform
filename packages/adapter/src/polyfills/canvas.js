@@ -140,6 +140,60 @@ function addDomSupport(canvas) {
   return canvas;
 }
 
+/**
+ * Bridge WeChat global touch events → DOM-like events on the canvas.
+ * Phaser listens on canvas.addEventListener('touchstart', ...) etc.
+ * WeChat only fires these via wx.onTouchStart / wx.onTouchMove / etc.
+ */
+function bridgeTouchEvents(canvas) {
+  const dpr = info.pixelRatio || 1;
+
+  function convertTouches(wxTouches) {
+    return (wxTouches || []).map(t => ({
+      identifier: t.identifier,
+      // wx touch coords are in CSS pixels; Phaser may need them
+      // relative to canvas. Since canvas fills the screen, no offset.
+      pageX: t.clientX,
+      pageY: t.clientY,
+      clientX: t.clientX,
+      clientY: t.clientY,
+      screenX: t.clientX,
+      screenY: t.clientY,
+      // Phaser reads target
+      target: canvas,
+    }));
+  }
+
+  function makeTouchEvent(type, wxEvent) {
+    const touches = convertTouches(wxEvent.touches);
+    const changedTouches = convertTouches(wxEvent.changedTouches);
+    return {
+      type,
+      target: canvas,
+      currentTarget: canvas,
+      touches,
+      changedTouches,
+      targetTouches: touches,
+      timeStamp: Date.now(),
+      preventDefault() {},
+      stopPropagation() {},
+    };
+  }
+
+  wx.onTouchStart(function(e) {
+    canvas.dispatchEvent(makeTouchEvent('touchstart', e));
+  });
+  wx.onTouchMove(function(e) {
+    canvas.dispatchEvent(makeTouchEvent('touchmove', e));
+  });
+  wx.onTouchEnd(function(e) {
+    canvas.dispatchEvent(makeTouchEvent('touchend', e));
+  });
+  wx.onTouchCancel(function(e) {
+    canvas.dispatchEvent(makeTouchEvent('touchcancel', e));
+  });
+}
+
 export function createPrimaryCanvas() {
   // If the adapter runs more than once (e.g. first via require() in game.js,
   // then inline in game-bundle.js), reuse the existing on-screen canvas
@@ -154,6 +208,8 @@ export function createPrimaryCanvas() {
   // available — prevents '2d' context lock-out and attrs issues.
   wrapGetContext(canvas, true);
   addDomSupport(canvas);
+  // Bridge WeChat global touch events to canvas DOM events
+  bridgeTouchEvents(canvas);
   GameGlobal.__wxCanvas = canvas;
   return canvas;
 }
