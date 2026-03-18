@@ -8,6 +8,9 @@
     "test": "pnpm -r run test",
     "clean": "pnpm -r run clean"
   },
+  "dependencies": {
+    "@aspect/cli": "workspace:*"
+  },
   "engines": {
     "node": ">=18",
     "pnpm": ">=8"

@@ -6,7 +6,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    dependencies:
+      '@aspect/cli':
+        specifier: workspace:*
+        version: link:packages/cli
 
   packages/adapter:
     devDependencies:

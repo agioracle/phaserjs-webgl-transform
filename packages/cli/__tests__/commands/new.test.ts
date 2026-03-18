@@ -4,7 +4,9 @@ import * as path from 'node:path';
 
 vi.mock('node:fs');
 vi.mock('inquirer', () => ({
-  default: { prompt: vi.fn() },
+  default: {
+    prompt: vi.fn(),
+  },
 }));
 
 import inquirer from 'inquirer';

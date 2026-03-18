@@ -1,7 +1,5 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { rollup } from 'rollup';
-import { phaserWxTransform } from '@aspect/rollup-plugin';
 import { loadConfig } from '../utils/config.js';
 
 interface BuildOptions {
@@ -48,6 +46,10 @@ const SIZE_LIMIT_ERROR = 20_971_520; // 20MB
 const SIZE_LIMIT_WARN = 16_777_216; // 16MB
 
 export async function buildCommand(options: BuildOptions): Promise<void> {
+  // Lazy imports: rollup and @aspect/rollup-plugin are external and only needed for build
+  const { rollup } = await import('rollup');
+  const { phaserWxTransform } = await import('@aspect/rollup-plugin');
+
   const config = loadConfig();
 
   if (options.cdn) {

@@ -6,6 +6,9 @@ vi.mock('../src/commands/init.js', () => ({
 vi.mock('../src/commands/build.js', () => ({
   buildCommand: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('../src/commands/new.js', () => ({
+  newCommand: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { createProgram } from '../src/index.js';
 import { initCommand } from '../src/commands/init.js';
