@@ -14,7 +14,7 @@ const bodyStub = {
 
 const documentShim = {
   body: bodyStub,
-  documentElement: { ...bodyStub, tagName: 'HTML' },
+  documentElement: { ...bodyStub, tagName: 'HTML', ontouchstart: null },
   hidden: false,
   readyState: 'complete',
 

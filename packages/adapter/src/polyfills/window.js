@@ -10,6 +10,9 @@ const windowShim = {
   scrollX: 0, scrollY: 0,
   pageXOffset: 0, pageYOffset: 0,
 
+  // Touch support flag — Phaser checks 'ontouchstart' in window
+  ontouchstart: null,
+
   location: { href: 'game.js', protocol: 'https:', host: 'minigame', hostname: 'minigame', pathname: '/game.js', search: '', hash: '' },
 
   performance: typeof performance !== 'undefined' ? performance : { now: () => Date.now() },

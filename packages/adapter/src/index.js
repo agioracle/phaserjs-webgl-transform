@@ -15,6 +15,10 @@ import wxLocalStorage from './polyfills/local-storage.js';
 function safeSet(obj, key, value) {
   try {
     obj[key] = value;
+    // Verify it was actually set (some environments silently fail)
+    if (obj[key] !== value) {
+      throw new Error('Assignment silently failed');
+    }
   } catch {
     try {
       Object.defineProperty(obj, key, {
@@ -24,7 +28,13 @@ function safeSet(obj, key, value) {
         enumerable: true,
       });
     } catch {
-      // Property is truly non-configurable; skip silently
+      // Last resort: delete and reassign
+      try {
+        delete obj[key];
+        obj[key] = value;
+      } catch {
+        // Property is truly non-configurable; skip silently
+      }
     }
   }
 }
