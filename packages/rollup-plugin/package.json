@@ -3,16 +3,18 @@
   "version": "0.1.0",
   "description": "Rollup plugin for transforming Phaser.js code for WeChat Mini-Game compatibility",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
       "types": "./dist/index.d.ts"
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
     "test": "vitest run",
     "clean": "rm -rf dist"
   },
@@ -26,6 +28,9 @@
     "rollup": "^4.0.0"
   },
   "devDependencies": {
+    "@types/babel__generator": "^7.27.0",
+    "@types/babel__traverse": "^7.28.0",
+    "@types/node": "^25.5.0",
     "rollup": "^4.28.1",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

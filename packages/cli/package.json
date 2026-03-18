@@ -4,11 +4,11 @@
   "description": "CLI tool for converting Phaser.js games to WeChat Mini-Games",
   "type": "module",
   "bin": {
-    "phaser-wx": "./dist/index.js"
+    "phaser-wx": "./dist/index.cjs"
   },
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
     "test": "vitest run",
     "clean": "rm -rf dist"
   },
@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@aspect/rollup-plugin": "workspace:*",
+    "@types/node": "^25.5.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
