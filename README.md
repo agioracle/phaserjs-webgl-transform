@@ -33,11 +33,22 @@ pnpm install
 pnpm build
 ```
 
+构建完成后，`phaser-wx` 命令可通过以下方式使用：
+
+```bash
+# 方式一：通过 npx 调用（推荐）
+npx phaser-wx --help
+
+# 方式二：全局安装后直接使用
+npm link packages/cli
+phaser-wx --help
+```
+
 ### 2. 创建新项目
 
 ```bash
 # 使用脚手架创建完整示例项目
-phaser-wx new my-game
+npx phaser-wx new my-game
 ```
 
 交互式引导会询问以下信息：
@@ -73,8 +84,8 @@ npm install
 # 本地预览（标准浏览器）
 npm run dev
 
-# 构建微信小游戏包
-phaser-wx build
+# 构建微信小游戏包（npm run build 等效）
+npx phaser-wx build
 ```
 
 构建产物输出到 `dist-wx/`，可直接在微信开发者工具中打开。
@@ -85,9 +96,11 @@ phaser-wx build
 
 ```bash
 cd your-existing-project
-phaser-wx init
-phaser-wx build
+npx phaser-wx init
+npx phaser-wx build
 ```
+
+> **提示**：在通过 `phaser-wx new` 创建的项目中，`npm run build` 已配置为调用 `phaser-wx build`，无需手动加 `npx`。
 
 ## CLI 命令
 
@@ -96,8 +109,8 @@ phaser-wx build
 创建一个新的 Phaser.js + 微信小游戏项目，包含完整的场景模板、UI 组件和配置文件。
 
 ```bash
-phaser-wx new my-game
-phaser-wx new my-game --template full   # 等效，full 为默认模板
+npx phaser-wx new my-game
+npx phaser-wx new my-game --template full   # 等效，full 为默认模板
 ```
 
 ### `phaser-wx init`
@@ -105,7 +118,7 @@ phaser-wx new my-game --template full   # 等效，full 为默认模板
 在当前目录生成 `phaser-wx.config.json` 配置文件。适用于已有 Phaser.js 项目。
 
 ```bash
-phaser-wx init
+npx phaser-wx init
 ```
 
 ### `phaser-wx build`
@@ -113,9 +126,11 @@ phaser-wx init
 执行构建，将 Phaser.js 项目转换为微信小游戏。
 
 ```bash
-phaser-wx build
-phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
+npx phaser-wx build
+npx phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
 ```
+
+> **提示**：如果已全局安装 `@aspect/cli`（通过 `npm install -g @aspect/cli`），可省略 `npx` 前缀。在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置，直接使用即可。
 
 ## 配置文件
 
@@ -297,6 +312,7 @@ pnpm clean
 | **Canvas 启动时预创建** | `GameGlobal.__wxCanvas` 在适配器初始化时创建，避免调用顺序问题 |
 | **LRU 缓存序列化写入** | 元数据通过 Promise 链串行写入，防止并发竞态 |
 | **模板内嵌为字符串** | CLI 使用 tsup 打包为单文件 CJS，模板作为字符串字面量内嵌避免运行时路径解析问题 |
+| **CLI 运行时依赖全量打包** | pnpm 严格模式下外部依赖不可跨包解析；`commander`、`inquirer` 等全部内联打包，仅 `rollup` 和 `@aspect/rollup-plugin` 保持外部引用（含 native binary，无法内联），通过懒加载 `await import()` 按需加载 |
 
 ## License
 
