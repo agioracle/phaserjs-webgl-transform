@@ -36,19 +36,21 @@ pnpm build
 构建完成后，`phaser-wx` 命令可通过以下方式使用：
 
 ```bash
-# 方式一：通过 npx 调用（推荐）
-npx phaser-wx --help
+# 在 monorepo 内使用 pnpm exec 调用
+pnpm exec phaser-wx --help
 
-# 方式二：全局安装后直接使用
-npm link packages/cli
+# 或者全局链接后直接使用
+pnpm link packages/cli --global
 phaser-wx --help
 ```
+
+> **注意**：`@aspect/cli` 尚未发布到 npm，因此 `npx phaser-wx` 不可用。在 monorepo 内请使用 `pnpm exec phaser-wx`。
 
 ### 2. 创建新项目
 
 ```bash
 # 使用脚手架创建完整示例项目
-npx phaser-wx new my-game
+pnpm exec phaser-wx new my-game
 ```
 
 交互式引导会询问以下信息：
@@ -84,23 +86,21 @@ npm install
 # 本地预览（标准浏览器）
 npm run dev
 
-# 构建微信小游戏包（npm run build 等效）
-npx phaser-wx build
+# 构建微信小游戏包
+npm run build
 ```
 
 构建产物输出到 `dist-wx/`，可直接在微信开发者工具中打开。
 
 ### 4. 在已有项目中使用
 
-如果你已有 Phaser.js 项目，只需初始化配置：
+如果你已有 Phaser.js 项目，在 monorepo 内初始化配置：
 
 ```bash
 cd your-existing-project
-npx phaser-wx init
-npx phaser-wx build
+pnpm exec phaser-wx init
+pnpm exec phaser-wx build
 ```
-
-> **提示**：在通过 `phaser-wx new` 创建的项目中，`npm run build` 已配置为调用 `phaser-wx build`，无需手动加 `npx`。
 
 ## CLI 命令
 
@@ -109,8 +109,8 @@ npx phaser-wx build
 创建一个新的 Phaser.js + 微信小游戏项目，包含完整的场景模板、UI 组件和配置文件。
 
 ```bash
-npx phaser-wx new my-game
-npx phaser-wx new my-game --template full   # 等效，full 为默认模板
+pnpm exec phaser-wx new my-game
+pnpm exec phaser-wx new my-game --template full   # 等效，full 为默认模板
 ```
 
 ### `phaser-wx init`
@@ -118,7 +118,7 @@ npx phaser-wx new my-game --template full   # 等效，full 为默认模板
 在当前目录生成 `phaser-wx.config.json` 配置文件。适用于已有 Phaser.js 项目。
 
 ```bash
-npx phaser-wx init
+pnpm exec phaser-wx init
 ```
 
 ### `phaser-wx build`
@@ -126,11 +126,11 @@ npx phaser-wx init
 执行构建，将 Phaser.js 项目转换为微信小游戏。
 
 ```bash
-npx phaser-wx build
-npx phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
+pnpm exec phaser-wx build
+pnpm exec phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
 ```
 
-> **提示**：如果已全局安装 `@aspect/cli`（通过 `npm install -g @aspect/cli`），可省略 `npx` 前缀。在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置，直接使用即可。
+> **提示**：如果已全局安装 `@aspect/cli`（通过 `npm install -g @aspect/cli`），可省略 `pnpm exec` 前缀。在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置，直接使用即可。
 
 ## 配置文件
 
