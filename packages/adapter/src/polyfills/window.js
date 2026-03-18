@@ -1,3 +1,4 @@
+const _gScope = typeof GameGlobal !== 'undefined' ? GameGlobal : globalThis;
 const info = wx.getSystemInfoSync();
 
 const _listeners = new Map();
@@ -40,19 +41,21 @@ const windowShim = {
 
   performance: typeof performance !== 'undefined' ? performance : { now: () => Date.now() },
 
-  // Timer functions — delegate to global (WeChat provides these)
-  setTimeout: typeof setTimeout !== 'undefined' ? setTimeout.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
-  clearTimeout: typeof clearTimeout !== 'undefined' ? clearTimeout.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
-  setInterval: typeof setInterval !== 'undefined' ? setInterval.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
-  clearInterval: typeof clearInterval !== 'undefined' ? clearInterval.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
+  // Timer functions — use _gScope explicitly to avoid var-hoisting issues
+  // (the CLI's intro creates `var setTimeout = ...` which hoists and shadows
+  //  bare references at adapter-evaluation time)
+  setTimeout: _gScope.setTimeout.bind(_gScope),
+  clearTimeout: _gScope.clearTimeout.bind(_gScope),
+  setInterval: _gScope.setInterval.bind(_gScope),
+  clearInterval: _gScope.clearInterval.bind(_gScope),
 
   // Animation frame — WeChat provides requestAnimationFrame globally
-  requestAnimationFrame: typeof requestAnimationFrame !== 'undefined'
-    ? requestAnimationFrame.bind(typeof globalThis !== 'undefined' ? globalThis : undefined)
-    : (cb) => setTimeout(cb, 1000 / 60),
-  cancelAnimationFrame: typeof cancelAnimationFrame !== 'undefined'
-    ? cancelAnimationFrame.bind(typeof globalThis !== 'undefined' ? globalThis : undefined)
-    : (id) => clearTimeout(id),
+  requestAnimationFrame: _gScope.requestAnimationFrame
+    ? _gScope.requestAnimationFrame.bind(_gScope)
+    : (cb) => _gScope.setTimeout(cb, 1000 / 60),
+  cancelAnimationFrame: _gScope.cancelAnimationFrame
+    ? _gScope.cancelAnimationFrame.bind(_gScope)
+    : (id) => _gScope.clearTimeout(id),
 
   // Focus/blur stubs
   focus() {},
