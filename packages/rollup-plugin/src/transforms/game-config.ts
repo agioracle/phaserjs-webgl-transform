@@ -1,0 +1,264 @@
+import { parse } from '@babel/parser';
+import traverse from '@babel/traverse';
+import generate from '@babel/generator';
+import * as t from '@babel/types';
+
+export interface TransformResult {
+  code: string;
+  warnings: string[];
+}
+
+function buildMemberExpression(...parts: string[]): t.MemberExpression {
+  if (parts.length === 2) {
+    return t.memberExpression(t.identifier(parts[0]), t.identifier(parts[1]));
+  }
+  const obj = buildMemberExpression(...parts.slice(0, -1));
+  return t.memberExpression(obj, t.identifier(parts[parts.length - 1]));
+}
+
+function buildDefaultType(): t.ObjectProperty {
+  return t.objectProperty(
+    t.identifier('type'),
+    buildMemberExpression('Phaser', 'WEBGL')
+  );
+}
+
+function buildCanvasValue(): t.MemberExpression {
+  return t.memberExpression(
+    t.identifier('GameGlobal'),
+    t.identifier('__wxCanvas')
+  );
+}
+
+function buildDefaultAudio(): t.ObjectProperty {
+  return t.objectProperty(
+    t.identifier('audio'),
+    t.objectExpression([
+      t.objectProperty(t.identifier('disableWebAudio'), t.booleanLiteral(true)),
+    ])
+  );
+}
+
+function buildDefaultScale(): t.ObjectProperty {
+  return t.objectProperty(
+    t.identifier('scale'),
+    t.objectExpression([
+      t.objectProperty(
+        t.identifier('mode'),
+        buildMemberExpression('Phaser', 'Scale', 'FIT')
+      ),
+      t.objectProperty(
+        t.identifier('autoCenter'),
+        buildMemberExpression('Phaser', 'Scale', 'CENTER_BOTH')
+      ),
+    ])
+  );
+}
+
+function buildDefaultParent(): t.ObjectProperty {
+  return t.objectProperty(t.identifier('parent'), t.nullLiteral());
+}
+
+function getPropertyName(prop: t.ObjectProperty | t.ObjectMethod | t.SpreadElement): string | null {
+  if (t.isSpreadElement(prop)) return null;
+  if (t.isObjectMethod(prop)) {
+    return t.isIdentifier(prop.key) ? prop.key.name : null;
+  }
+  if (t.isIdentifier(prop.key)) return prop.key.name;
+  if (t.isStringLiteral(prop.key)) return prop.key.value;
+  return null;
+}
+
+function isMemberExpressionMatch(node: t.Node, parts: string[]): boolean {
+  if (parts.length === 1) {
+    return t.isIdentifier(node) && node.name === parts[0];
+  }
+  if (!t.isMemberExpression(node)) return false;
+  const lastPart = parts[parts.length - 1];
+  if (!t.isIdentifier(node.property) || node.property.name !== lastPart) return false;
+  return isMemberExpressionMatch(node.object, parts.slice(0, -1));
+}
+
+function isWebGLType(value: t.Node): boolean {
+  return isMemberExpressionMatch(value, ['Phaser', 'WEBGL']);
+}
+
+function mergeObjectProperties(
+  objExpr: t.ObjectExpression,
+  warnings: string[]
+): void {
+  const existingProps = new Map<string, t.ObjectProperty>();
+
+  for (const prop of objExpr.properties) {
+    if (t.isObjectProperty(prop)) {
+      const name = getPropertyName(prop);
+      if (name) {
+        existingProps.set(name, prop);
+      }
+    }
+  }
+
+  // Handle 'type' property
+  if (existingProps.has('type')) {
+    const typeProp = existingProps.get('type')!;
+    if (!isWebGLType(typeProp.value as t.Node)) {
+      warnings.push(
+        'Renderer type is not Phaser.WEBGL. Overriding to Phaser.WEBGL for WeChat Mini-Game compatibility.'
+      );
+      typeProp.value = buildMemberExpression('Phaser', 'WEBGL');
+    }
+  } else {
+    objExpr.properties.push(buildDefaultType());
+  }
+
+  // Handle 'canvas' property
+  if (!existingProps.has('canvas')) {
+    objExpr.properties.push(
+      t.objectProperty(t.identifier('canvas'), buildCanvasValue())
+    );
+  }
+
+  // Handle 'parent' property — always force to null
+  if (existingProps.has('parent')) {
+    const parentProp = existingProps.get('parent')!;
+    parentProp.value = t.nullLiteral();
+  } else {
+    objExpr.properties.push(buildDefaultParent());
+  }
+
+  // Handle 'audio' property
+  if (existingProps.has('audio')) {
+    const audioProp = existingProps.get('audio')!;
+    if (t.isObjectExpression(audioProp.value)) {
+      const audioProps = new Map<string, t.ObjectProperty>();
+      for (const p of audioProp.value.properties) {
+        if (t.isObjectProperty(p)) {
+          const n = getPropertyName(p);
+          if (n) audioProps.set(n, p);
+        }
+      }
+      if (!audioProps.has('disableWebAudio')) {
+        audioProp.value.properties.push(
+          t.objectProperty(t.identifier('disableWebAudio'), t.booleanLiteral(true))
+        );
+      }
+    }
+  } else {
+    objExpr.properties.push(buildDefaultAudio());
+  }
+
+  // Handle 'scale' property
+  if (existingProps.has('scale')) {
+    const scaleProp = existingProps.get('scale')!;
+    if (t.isObjectExpression(scaleProp.value)) {
+      const scaleProps = new Map<string, t.ObjectProperty>();
+      for (const p of scaleProp.value.properties) {
+        if (t.isObjectProperty(p)) {
+          const n = getPropertyName(p);
+          if (n) scaleProps.set(n, p);
+        }
+      }
+      if (!scaleProps.has('mode')) {
+        scaleProp.value.properties.push(
+          t.objectProperty(
+            t.identifier('mode'),
+            buildMemberExpression('Phaser', 'Scale', 'FIT')
+          )
+        );
+      }
+      if (!scaleProps.has('autoCenter')) {
+        scaleProp.value.properties.push(
+          t.objectProperty(
+            t.identifier('autoCenter'),
+            buildMemberExpression('Phaser', 'Scale', 'CENTER_BOTH')
+          )
+        );
+      }
+    }
+  } else {
+    objExpr.properties.push(buildDefaultScale());
+  }
+}
+
+function isPhaserGameNew(node: t.NewExpression): boolean {
+  return (
+    t.isMemberExpression(node.callee) &&
+    t.isIdentifier(node.callee.object) &&
+    node.callee.object.name === 'Phaser' &&
+    t.isIdentifier(node.callee.property) &&
+    node.callee.property.name === 'Game'
+  );
+}
+
+export function transformGameConfig(code: string): TransformResult {
+  const warnings: string[] = [];
+
+  let ast: ReturnType<typeof parse>;
+  try {
+    ast = parse(code, {
+      sourceType: 'module',
+      plugins: ['jsx', 'typescript'],
+      allowReturnOutsideFunction: true,
+    });
+  } catch {
+    return { code, warnings: ['Failed to parse source code'] };
+  }
+
+  let modified = false;
+
+  traverse(ast, {
+    NewExpression(path) {
+      if (!isPhaserGameNew(path.node)) return;
+
+      const args = path.node.arguments;
+      if (args.length === 0) {
+        const configObj = t.objectExpression([]);
+        mergeObjectProperties(configObj, warnings);
+        path.node.arguments = [configObj];
+        modified = true;
+        return;
+      }
+
+      const firstArg = args[0];
+
+      if (t.isObjectExpression(firstArg)) {
+        mergeObjectProperties(firstArg, warnings);
+        modified = true;
+      } else if (t.isIdentifier(firstArg)) {
+        const varName = firstArg.name;
+        const binding = path.scope.getBinding(varName);
+
+        if (binding && binding.path.isVariableDeclarator()) {
+          const init = binding.path.node.init;
+          if (t.isObjectExpression(init)) {
+            mergeObjectProperties(init, warnings);
+            modified = true;
+          } else {
+            warnings.push(
+              `Could not resolve config variable "${varName}": initializer is not an object literal.`
+            );
+          }
+        } else {
+          warnings.push(
+            `Could not resolve config variable "${varName}".`
+          );
+        }
+      } else {
+        warnings.push(
+          'Could not resolve config argument: not an object literal or identifier.'
+        );
+      }
+    },
+  });
+
+  if (!modified && warnings.length === 0) {
+    return { code, warnings };
+  }
+
+  const output = generate(ast, {
+    retainLines: true,
+    compact: false,
+  });
+
+  return { code: output.code, warnings };
+}
