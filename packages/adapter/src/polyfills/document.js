@@ -2,6 +2,63 @@ const _listeners = new Map();
 
 const info = typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { screenWidth: 375, screenHeight: 667 };
 
+// Shared helper: make a wx canvas look enough like an HTMLCanvasElement
+// for Phaser's CanvasPool, feature-detection, and 2D helpers.
+function patchCanvas(canvas) {
+  if (!canvas._listeners) {
+    canvas._listeners = new Map();
+    canvas.addEventListener = function(type, listener) {
+      if (!this._listeners.has(type)) this._listeners.set(type, []);
+      this._listeners.get(type).push(listener);
+    };
+    canvas.removeEventListener = function(type, listener) {
+      const list = this._listeners.get(type);
+      if (!list) return;
+      const idx = list.indexOf(listener);
+      if (idx !== -1) list.splice(idx, 1);
+    };
+    canvas.dispatchEvent = function(event) {
+      const list = this._listeners.get(event.type);
+      if (list) list.forEach(fn => fn(event));
+    };
+  }
+  if (!canvas.style) canvas.style = { width: '', height: '' };
+  if (!canvas.tagName) canvas.tagName = 'CANVAS';
+  const _a = {};
+  if (!canvas.setAttribute) {
+    canvas.setAttribute = function(k, v) {
+      _a[k] = v;
+      if (k === 'width') canvas.width = parseInt(v, 10);
+      if (k === 'height') canvas.height = parseInt(v, 10);
+    };
+  }
+  if (!canvas.getAttribute) {
+    canvas.getAttribute = function(k) { return _a[k] !== undefined ? _a[k] : null; };
+  }
+  if (!canvas.getBoundingClientRect) {
+    canvas.getBoundingClientRect = function() {
+      return { x: 0, y: 0, top: 0, left: 0,
+        bottom: canvas.height || info.screenHeight,
+        right: canvas.width || info.screenWidth,
+        width: canvas.width || info.screenWidth,
+        height: canvas.height || info.screenHeight };
+    };
+  }
+  if (!canvas.focus) canvas.focus = function() {};
+  if (!canvas.parentNode) {
+    canvas.parentNode = {
+      tagName: 'BODY',
+      appendChild() {}, removeChild() {}, insertBefore() {},
+      getBoundingClientRect() {
+        return { x: 0, y: 0, top: 0, left: 0,
+          bottom: info.screenHeight, right: info.screenWidth,
+          width: info.screenWidth, height: info.screenHeight };
+      },
+    };
+  }
+  return canvas;
+}
+
 const bodyStub = {
   clientWidth: info.screenWidth || 375,
   clientHeight: info.screenHeight || 667,
@@ -25,13 +82,13 @@ const documentShim = {
   createElement(tagName) {
     const tag = tagName.toLowerCase();
     if (tag === 'canvas') {
-      // First canvas request returns the on-screen primary canvas;
-      // subsequent requests create off-screen canvases.
-      if (typeof GameGlobal !== 'undefined' && GameGlobal.__wxCanvas && !GameGlobal.__wxCanvasClaimed) {
-        GameGlobal.__wxCanvasClaimed = true;
-        return GameGlobal.__wxCanvas;
-      }
-      return wx.createCanvas();
+      // Always create a new off-screen canvas.
+      // The primary on-screen canvas is passed to Phaser via
+      // config.canvas (GameGlobal.__wxCanvas), so createElement
+      // must NOT return it — Phaser also uses createElement('canvas')
+      // for CanvasPool (2D feature detection etc.) which would fail
+      // if given a canvas that already has a WebGL context.
+      return patchCanvas(wx.createCanvas());
     }
     if (tag === 'img' || tag === 'image') {
       return wx.createImage();
