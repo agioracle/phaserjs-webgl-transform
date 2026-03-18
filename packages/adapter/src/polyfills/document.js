@@ -135,6 +135,14 @@ const documentShim = {
   querySelector() { return null; },
   querySelectorAll() { return []; },
 
+  // Phaser's InputManager calls elementFromPoint during touch events
+  elementFromPoint() {
+    if (typeof GameGlobal !== 'undefined' && GameGlobal.__wxCanvas) {
+      return GameGlobal.__wxCanvas;
+    }
+    return null;
+  },
+
   createTextNode(text) {
     return { textContent: text, nodeType: 3 };
   },
