@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
 import { buildCommand } from './commands/build.js';
+import { newCommand } from './commands/new.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -21,6 +22,12 @@ export function createProgram(): Command {
     .description('Build for WeChat Mini-Game')
     .option('--cdn <url>', 'CDN base URL for remote assets')
     .action(buildCommand);
+
+  program
+    .command('new <project-name>')
+    .description('Scaffold a new Phaser.js + WeChat Mini-Game project')
+    .option('--template <name>', 'Project template to use', 'full')
+    .action(newCommand);
 
   return program;
 }
