@@ -1,0 +1,13 @@
+{
+  "name": "@aspect/adapter",
+  "version": "0.1.0",
+  "description": "WeChat Mini-Game adapter polyfills for Phaser.js browser API compatibility",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}
