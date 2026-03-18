@@ -31,7 +31,7 @@ describe('generateFullTemplate', () => {
     expect(pkg.name).toBe('test-game');
     expect(pkg.dependencies.phaser).toBeDefined();
     expect(pkg.scripts.dev).toBeDefined();
-    expect(pkg.scripts.build).toBe('phaser-wx build');
+    expect(pkg.scripts.build).toBe('pnpm exec phaser-wx build');
   });
 
   it('writes config with correct appid, orientation, cdn', () => {

@@ -29,13 +29,12 @@ function packageJson(ctx: TemplateContext): string {
     private: true,
     scripts: {
       dev: 'npx serve public',
-      build: 'phaser-wx build',
+      build: 'pnpm exec phaser-wx build',
     },
     dependencies: {
       phaser: '^3.80.0',
     },
     devDependencies: {
-      '@aspect/cli': '^0.1.0',
       serve: '^14.0.0',
     },
   };
