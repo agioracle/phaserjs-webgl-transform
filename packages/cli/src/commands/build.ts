@@ -46,9 +46,11 @@ const SIZE_LIMIT_ERROR = 20_971_520; // 20MB
 const SIZE_LIMIT_WARN = 16_777_216; // 16MB
 
 export async function buildCommand(options: BuildOptions): Promise<void> {
-  // Lazy imports: rollup and @aspect/rollup-plugin are external and only needed for build
+  // Lazy imports: rollup and plugins are external and only needed for build
   const { rollup } = await import('rollup');
   const { phaserWxTransform } = await import('@aspect/rollup-plugin');
+  const nodeResolve = (await import('@rollup/plugin-node-resolve')).default;
+  const commonjs = (await import('@rollup/plugin-commonjs')).default;
 
   const config = loadConfig();
 
@@ -61,9 +63,38 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   console.log(`  Output: ${config.output.dir}`);
   console.log(`  CDN: ${config.cdn}`);
 
+  // Resolve adapter path from monorepo
+  let adapterPath = '';
+  try {
+    const adapterPkg = require.resolve('@aspect/adapter/package.json');
+    adapterPath = path.join(path.dirname(adapterPkg), 'src', 'index.js');
+  } catch {
+    try {
+      const pluginPkg = require.resolve('@aspect/rollup-plugin/package.json');
+      adapterPath = path.resolve(path.dirname(pluginPkg), '..', 'adapter', 'src', 'index.js');
+    } catch {
+      // adapter path will remain empty
+    }
+  }
+
+  const pluginOptions = {
+    outputDir: config.output.dir,
+    assetsDir: config.assets.dir,
+    remoteDir: path.join(config.output.dir, 'remote'),
+    adapterPath,
+    orientation: config.orientation,
+    appid: config.appid,
+    cdnBase: config.cdn,
+    sizeThreshold: config.assets.remoteSizeThreshold,
+  };
+
   const rollupConfig = {
     input: config.entry,
-    plugins: [phaserWxTransform(config)],
+    plugins: [
+      nodeResolve({ browser: true }),
+      commonjs(),
+      phaserWxTransform(pluginOptions),
+    ],
   };
 
   const bundle = await rollup(rollupConfig);
