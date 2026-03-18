@@ -134,6 +134,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       ['document', 'document'],
       ['navigator', 'navigator'],
       ['canvas', 'canvas'],
+      ['screen', 'screen'],
       ['Image', 'Image'],
       ['Audio', 'Audio'],
       ['AudioContext', 'AudioContext'],
@@ -146,6 +147,13 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     }
     introLines.push('var webkitAudioContext = __adapter_exports.AudioContext;');
     introLines.push('var self = __adapter_exports.window;');
+    // Timer and animation frame — use window polyfill's implementations
+    introLines.push('var setTimeout = __adapter_exports.window.setTimeout;');
+    introLines.push('var clearTimeout = __adapter_exports.window.clearTimeout;');
+    introLines.push('var setInterval = __adapter_exports.window.setInterval;');
+    introLines.push('var clearInterval = __adapter_exports.window.clearInterval;');
+    introLines.push('var requestAnimationFrame = __adapter_exports.window.requestAnimationFrame;');
+    introLines.push('var cancelAnimationFrame = __adapter_exports.window.cancelAnimationFrame;');
     introLines.push('var HTMLElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLElement || function HTMLElement() {};');
     introLines.push('var HTMLCanvasElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLCanvasElement || function HTMLCanvasElement() {};');
   } else {

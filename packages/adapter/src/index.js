@@ -1,4 +1,4 @@
-import window from './polyfills/window.js';
+import window, { screenShim as screen } from './polyfills/window.js';
 import document from './polyfills/document.js';
 import navigator from './polyfills/navigator.js';
 import { createPrimaryCanvas, createOffscreenCanvas } from './polyfills/canvas.js';
@@ -99,6 +99,7 @@ export {
   document,
   navigator,
   canvas,
+  screen,
   WxImage as Image,
   WxAudio as Audio,
   WxAudioContext as AudioContext,

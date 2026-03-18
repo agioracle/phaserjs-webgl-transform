@@ -2,10 +2,33 @@ const info = wx.getSystemInfoSync();
 
 const _listeners = new Map();
 
+// screen object — Phaser's ScaleManager reads screen.width/height/orientation
+const screenShim = {
+  width: info.screenWidth || info.windowWidth,
+  height: info.screenHeight || info.windowHeight,
+  availWidth: info.screenWidth || info.windowWidth,
+  availHeight: info.screenHeight || info.windowHeight,
+  colorDepth: 24,
+  pixelDepth: 24,
+  get orientation() {
+    return {
+      type: (info.screenWidth || 375) > (info.screenHeight || 667)
+        ? 'landscape-primary'
+        : 'portrait-primary',
+      angle: 0,
+      addEventListener() {},
+      removeEventListener() {},
+    };
+  },
+};
+
 const windowShim = {
   innerWidth: info.windowWidth || info.screenWidth,
   innerHeight: info.windowHeight || info.screenHeight,
+  outerWidth: info.screenWidth || info.windowWidth,
+  outerHeight: info.screenHeight || info.windowHeight,
   devicePixelRatio: info.pixelRatio || 1,
+  screen: screenShim,
 
   scrollX: 0, scrollY: 0,
   pageXOffset: 0, pageYOffset: 0,
@@ -16,6 +39,43 @@ const windowShim = {
   location: { href: 'game.js', protocol: 'https:', host: 'minigame', hostname: 'minigame', pathname: '/game.js', search: '', hash: '' },
 
   performance: typeof performance !== 'undefined' ? performance : { now: () => Date.now() },
+
+  // Timer functions — delegate to global (WeChat provides these)
+  setTimeout: typeof setTimeout !== 'undefined' ? setTimeout.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
+  clearTimeout: typeof clearTimeout !== 'undefined' ? clearTimeout.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
+  setInterval: typeof setInterval !== 'undefined' ? setInterval.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
+  clearInterval: typeof clearInterval !== 'undefined' ? clearInterval.bind(typeof globalThis !== 'undefined' ? globalThis : undefined) : undefined,
+
+  // Animation frame — WeChat provides requestAnimationFrame globally
+  requestAnimationFrame: typeof requestAnimationFrame !== 'undefined'
+    ? requestAnimationFrame.bind(typeof globalThis !== 'undefined' ? globalThis : undefined)
+    : (cb) => setTimeout(cb, 1000 / 60),
+  cancelAnimationFrame: typeof cancelAnimationFrame !== 'undefined'
+    ? cancelAnimationFrame.bind(typeof globalThis !== 'undefined' ? globalThis : undefined)
+    : (id) => clearTimeout(id),
+
+  // Focus/blur stubs
+  focus() {},
+  blur() {},
+
+  // matchMedia stub — Phaser may query media features
+  matchMedia() {
+    return {
+      matches: false,
+      media: '',
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+    };
+  },
+
+  // getComputedStyle stub
+  getComputedStyle() {
+    return {
+      getPropertyValue() { return ''; },
+    };
+  },
 
   addEventListener(type, listener) {
     if (!_listeners.has(type)) _listeners.set(type, []);
@@ -36,5 +96,7 @@ const windowShim = {
 windowShim.self = windowShim;
 windowShim.top = windowShim;
 windowShim.parent = windowShim;
+windowShim.window = windowShim;
 
+export { screenShim };
 export default windowShim;
