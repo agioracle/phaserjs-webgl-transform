@@ -134,6 +134,13 @@ function addDomSupport(canvas) {
 }
 
 export function createPrimaryCanvas() {
+  // If the adapter runs more than once (e.g. first via require() in game.js,
+  // then inline in game-bundle.js), reuse the existing on-screen canvas
+  // instead of creating a new off-screen one that overwrites it.
+  if (typeof GameGlobal !== 'undefined' && GameGlobal.__wxCanvas) {
+    return GameGlobal.__wxCanvas;
+  }
+
   const canvas = wx.createCanvas();
   addEventSupport(canvas);
   // Eagerly create WebGL context on primary canvas to guarantee it's
