@@ -1,7 +1,13 @@
 import { parse } from '@babel/parser';
-import traverse from '@babel/traverse';
-import generate from '@babel/generator';
+import _traverse from '@babel/traverse';
+import type { NodePath } from '@babel/traverse';
+import _generate from '@babel/generator';
 import * as t from '@babel/types';
+
+// Handle CJS/ESM interop — @babel/traverse and @babel/generator are CJS
+// and may be wrapped as { default: fn } when imported from ESM
+const traverse = typeof _traverse === 'function' ? _traverse : (_traverse as any).default;
+const generate = typeof _generate === 'function' ? _generate : (_generate as any).default;
 
 export interface TransformResult {
   code: string;
@@ -207,7 +213,7 @@ export function transformGameConfig(code: string): TransformResult {
   let modified = false;
 
   traverse(ast, {
-    NewExpression(path) {
+    NewExpression(path: NodePath<t.NewExpression>) {
       if (!isPhaserGameNew(path.node)) return;
 
       const args = path.node.arguments;

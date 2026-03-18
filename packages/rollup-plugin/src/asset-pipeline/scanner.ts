@@ -1,6 +1,10 @@
 import { parse } from '@babel/parser';
-import traverse from '@babel/traverse';
+import _traverse from '@babel/traverse';
+import type { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
+
+// Handle CJS/ESM interop — @babel/traverse is CJS
+const traverse = typeof _traverse === 'function' ? _traverse : (_traverse as any).default;
 
 export interface AssetReference {
   path: string;
@@ -55,7 +59,7 @@ export function scanAssets(code: string): AssetReference[] {
   }
 
   traverse(ast, {
-    CallExpression(path) {
+    CallExpression(path: NodePath<t.CallExpression>) {
       const callee = path.node.callee;
 
       if (
