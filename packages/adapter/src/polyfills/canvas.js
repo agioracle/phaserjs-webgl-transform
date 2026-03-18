@@ -19,54 +19,44 @@ function addEventSupport(canvas) {
   return canvas;
 }
 
-function wrapGetContext(canvas) {
-  const _origGetContext = canvas.getContext.bind(canvas);
+/**
+ * Wrap getContext so that:
+ * 1. For the primary canvas, eagerly obtain and cache a WebGL context
+ *    (avoids issues with attrs WeChat doesn't support).
+ * 2. For any canvas, handle fallback from experimental-webgl → webgl.
+ */
+function wrapGetContext(canvas, eagleWebGL) {
+  const _orig = canvas.getContext;
+
+  // Eagerly create the WebGL context on primary canvas before anyone
+  // else can request a '2d' context and lock it.
+  let _glCache = null;
+  if (eagleWebGL) {
+    try { _glCache = _orig.call(canvas, 'webgl'); } catch (e) { /* ignore */ }
+    if (!_glCache) {
+      try { _glCache = _orig.call(canvas, 'experimental-webgl'); } catch (e) { /* ignore */ }
+    }
+  }
+
   canvas.getContext = function(type, attrs) {
-    // Normalize type
-    const t = type.toLowerCase();
+    const t = (type || '').toLowerCase();
 
-    // For WebGL contexts, try with attributes first, then without.
-    // WeChat's canvas may not support all Phaser attributes
-    // (e.g. desynchronized, failIfMajorPerformanceCaveat).
     if (t === 'webgl' || t === 'webgl2' || t === 'experimental-webgl') {
-      // Try original call first
+      // Return cached context if we have one
+      if (_glCache) return _glCache;
+
+      // Try all fallbacks
       let ctx = null;
-      try {
-        ctx = _origGetContext(t, attrs);
-      } catch (e) { /* ignore */ }
-      if (ctx) return ctx;
-
-      // Try with only safe attributes
-      if (attrs) {
-        const safeAttrs = {};
-        const safeKeys = ['alpha', 'depth', 'stencil', 'antialias', 'premultipliedAlpha', 'preserveDrawingBuffer'];
-        for (const k of safeKeys) {
-          if (attrs[k] !== undefined) safeAttrs[k] = attrs[k];
-        }
-        try {
-          ctx = _origGetContext(t, safeAttrs);
-        } catch (e) { /* ignore */ }
-        if (ctx) return ctx;
-      }
-
-      // Try without any attributes
-      try {
-        ctx = _origGetContext(t);
-      } catch (e) { /* ignore */ }
-      if (ctx) return ctx;
-
-      // Try 'webgl' if 'experimental-webgl' was asked (or vice versa)
-      if (t === 'experimental-webgl') {
-        try { ctx = _origGetContext('webgl'); } catch (e) { /* ignore */ }
-      }
+      try { ctx = _orig.call(canvas, 'webgl', attrs); } catch (e) { /* ignore */ }
+      if (!ctx) { try { ctx = _orig.call(canvas, 'webgl'); } catch (e) { /* ignore */ } }
+      if (!ctx) { try { ctx = _orig.call(canvas, 'experimental-webgl'); } catch (e) { /* ignore */ } }
+      if (ctx) _glCache = ctx;
       return ctx;
     }
 
-    // Non-WebGL contexts (2d, etc.)
-    try {
-      return _origGetContext(t, attrs);
-    } catch (e) {
-      return _origGetContext(t);
+    // Non-WebGL (2d, etc.)
+    try { return _orig.call(canvas, t, attrs); } catch (e) {
+      return _orig.call(canvas, t);
     }
   };
 }
@@ -146,7 +136,9 @@ function addDomSupport(canvas) {
 export function createPrimaryCanvas() {
   const canvas = wx.createCanvas();
   addEventSupport(canvas);
-  wrapGetContext(canvas);
+  // Eagerly create WebGL context on primary canvas to guarantee it's
+  // available — prevents '2d' context lock-out and attrs issues.
+  wrapGetContext(canvas, true);
   addDomSupport(canvas);
   GameGlobal.__wxCanvas = canvas;
   return canvas;
@@ -155,7 +147,7 @@ export function createPrimaryCanvas() {
 export function createOffscreenCanvas() {
   const canvas = wx.createCanvas();
   addEventSupport(canvas);
-  wrapGetContext(canvas);
+  wrapGetContext(canvas, false);
   addDomSupport(canvas);
   return canvas;
 }
