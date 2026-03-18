@@ -25,6 +25,12 @@ const documentShim = {
   createElement(tagName) {
     const tag = tagName.toLowerCase();
     if (tag === 'canvas') {
+      // First canvas request returns the on-screen primary canvas;
+      // subsequent requests create off-screen canvases.
+      if (typeof GameGlobal !== 'undefined' && GameGlobal.__wxCanvas && !GameGlobal.__wxCanvasClaimed) {
+        GameGlobal.__wxCanvasClaimed = true;
+        return GameGlobal.__wxCanvas;
+      }
       return wx.createCanvas();
     }
     if (tag === 'img' || tag === 'image') {
