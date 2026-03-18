@@ -88,7 +88,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     sizeThreshold: config.assets.remoteSizeThreshold,
   };
 
-  // Bundle the adapter into a single CJS string first.
+  // Bundle the adapter into a single file.
   let adapterCode = '';
   if (adapterPath && fs.existsSync(adapterPath)) {
     const adapterBundle = await rollup({
@@ -96,8 +96,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       plugins: [nodeResolve(), commonjs()],
     });
     const adapterOutput = await adapterBundle.generate({
-      format: 'iife' as const,
-      name: '__phaserWxAdapter',
+      format: 'cjs' as const,
+      exports: 'named' as const,
     });
     await adapterBundle.close();
     adapterCode = adapterOutput.output[0].code;
@@ -111,30 +111,57 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   }
 
   // Build a module-scope intro that:
-  // 1. Runs the adapter IIFE (sets up GameGlobal.window/document/etc.)
-  // 2. Creates module-scope var aliases so bare references like `document`
-  //    resolve to our polyfills even inside Phaser's nested webpack closures.
-  //    In CJS strict mode, bare `document` only resolves through the scope chain,
-  //    not globalThis. WeChat may also have its own partial `document` object
-  //    that lacks properties like `documentElement`.
+  // 1. Runs the adapter code inline (sets up GameGlobal polyfills + exports)
+  // 2. Creates module-scope var aliases from the adapter's EXPORTS, not from
+  //    GameGlobal properties. This guarantees the polyfill objects are used
+  //    even if safeSet fails to override WeChat's read-only globals.
+  //    Bare references like `document` inside Phaser's webpack closures
+  //    resolve up the scope chain to these module-scope vars.
   const introLines = [];
   if (adapterCode) {
-    introLines.push('// --- phaser-wx-adapter ---');
+    // Wrap adapter in a function that captures its CJS exports
+    introLines.push('// --- phaser-wx-adapter (inline) ---');
+    introLines.push('var __adapter_exports = (function() {');
+    introLines.push('  var module = { exports: {} }; var exports = module.exports;');
     introLines.push(adapterCode);
+    introLines.push('  return module.exports;');
+    introLines.push('})();');
     introLines.push('// --- end adapter ---');
+    introLines.push('');
+    // Create module-scope aliases from adapter exports (guaranteed correct)
+    const aliasMap = [
+      ['window', 'window'],
+      ['document', 'document'],
+      ['navigator', 'navigator'],
+      ['canvas', 'canvas'],
+      ['Image', 'Image'],
+      ['Audio', 'Audio'],
+      ['AudioContext', 'AudioContext'],
+      ['XMLHttpRequest', 'XMLHttpRequest'],
+      ['fetch', 'fetch'],
+      ['localStorage', 'localStorage'],
+    ];
+    for (const [varName, exportName] of aliasMap) {
+      introLines.push(`var ${varName} = __adapter_exports.${exportName};`);
+    }
+    introLines.push('var webkitAudioContext = __adapter_exports.AudioContext;');
+    introLines.push('var self = __adapter_exports.window;');
+    introLines.push('var HTMLElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLElement || function HTMLElement() {};');
+    introLines.push('var HTMLCanvasElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLCanvasElement || function HTMLCanvasElement() {};');
+  } else {
+    // Fallback: alias from GameGlobal (less reliable)
+    introLines.push('var _g = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;');
+    const globalAliases = [
+      'window', 'document', 'navigator', 'canvas',
+      'Image', 'Audio', 'AudioContext', 'webkitAudioContext',
+      'XMLHttpRequest', 'fetch', 'localStorage',
+      'HTMLElement', 'HTMLCanvasElement',
+    ];
+    for (const name of globalAliases) {
+      introLines.push(`var ${name} = _g.${name};`);
+    }
+    introLines.push('var self = _g.window || _g;');
   }
-  // Create module-scope aliases from GameGlobal polyfills
-  introLines.push('var _g = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;');
-  const globalAliases = [
-    'window', 'document', 'navigator', 'canvas',
-    'Image', 'Audio', 'AudioContext', 'webkitAudioContext',
-    'XMLHttpRequest', 'fetch', 'localStorage',
-    'HTMLElement', 'HTMLCanvasElement',
-  ];
-  for (const name of globalAliases) {
-    introLines.push(`var ${name} = _g.${name};`);
-  }
-  introLines.push('var self = _g.window || _g;');
   introLines.push('');
   const introCode = introLines.join('\n');
 

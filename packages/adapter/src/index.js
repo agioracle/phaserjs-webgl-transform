@@ -15,7 +15,6 @@ import wxLocalStorage from './polyfills/local-storage.js';
 function safeSet(obj, key, value) {
   try {
     obj[key] = value;
-    // Verify it was actually set (some environments silently fail)
     if (obj[key] !== value) {
       throw new Error('Assignment silently failed');
     }
@@ -28,7 +27,6 @@ function safeSet(obj, key, value) {
         enumerable: true,
       });
     } catch {
-      // Last resort: delete and reassign
       try {
         delete obj[key];
         obj[key] = value;
@@ -93,3 +91,18 @@ window.AudioContext = WxAudioContext;
 window.XMLHttpRequest = WxXMLHttpRequest;
 window.fetch = wxFetch;
 window.localStorage = wxLocalStorage;
+
+// Export polyfill objects so they can be used directly as module-scope
+// var aliases, bypassing any issues with GameGlobal property assignment.
+export {
+  window,
+  document,
+  navigator,
+  canvas,
+  WxImage as Image,
+  WxAudio as Audio,
+  WxAudioContext as AudioContext,
+  WxXMLHttpRequest as XMLHttpRequest,
+  wxFetch as fetch,
+  wxLocalStorage as localStorage,
+};
