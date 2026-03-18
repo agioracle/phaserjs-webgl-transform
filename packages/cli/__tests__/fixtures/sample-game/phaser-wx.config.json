@@ -1,0 +1,13 @@
+{
+  "appid": "wx1234567890abcdef",
+  "orientation": "landscape",
+  "cdn": "https://cdn.example.com/game-assets",
+  "entry": "src/main.js",
+  "assets": {
+    "dir": "public/assets",
+    "remoteSizeThreshold": 204800
+  },
+  "output": {
+    "dir": "dist-wx"
+  }
+}

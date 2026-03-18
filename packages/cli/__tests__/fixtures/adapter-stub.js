@@ -1,0 +1,1 @@
+// phaser-wx-adapter stub
