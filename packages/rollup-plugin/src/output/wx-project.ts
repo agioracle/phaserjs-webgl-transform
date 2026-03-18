@@ -58,6 +58,14 @@ require('./game-bundle.js');
     'utf-8'
   );
 
-  // Copy adapter file
-  fs.copyFileSync(adapterPath, path.join(outputDir, 'phaser-wx-adapter.js'));
+  // Copy adapter file if it exists and is a single-file bundle.
+  // If the adapter source has sub-module imports, it must be bundled
+  // externally (e.g., by the CLI) before this step.
+  if (adapterPath && fs.existsSync(adapterPath)) {
+    const adapterContent = fs.readFileSync(adapterPath, 'utf-8');
+    const hasSubModuleImports = /(?:^|\n)\s*import\s+.*from\s+['"]\.\//.test(adapterContent);
+    if (!hasSubModuleImports) {
+      fs.copyFileSync(adapterPath, path.join(outputDir, 'phaser-wx-adapter.js'));
+    }
+  }
 }

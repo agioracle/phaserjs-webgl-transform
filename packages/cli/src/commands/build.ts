@@ -99,10 +99,25 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
 
   const bundle = await rollup(rollupConfig);
   await bundle.write({
-    dir: config.output.dir,
+    file: path.join(config.output.dir, 'game-bundle.js'),
     format: 'cjs' as const,
   });
   await bundle.close();
+
+  // Bundle the adapter into a single CJS file for WeChat Mini-Game runtime.
+  // The adapter source uses ES module imports (./polyfills/window.js etc.)
+  // which WeChat's require() cannot resolve, so we must bundle it.
+  if (adapterPath && fs.existsSync(adapterPath)) {
+    const adapterBundle = await rollup({
+      input: adapterPath,
+      plugins: [nodeResolve(), commonjs()],
+    });
+    await adapterBundle.write({
+      file: path.join(config.output.dir, 'phaser-wx-adapter.js'),
+      format: 'cjs' as const,
+    });
+    await adapterBundle.close();
+  }
 
   // Post-build size check (exclude 'remote' subfolder)
   const localFiles = walkDir(config.output.dir, ['remote']);
