@@ -51,11 +51,11 @@ function buildDefaultScale(): t.ObjectProperty {
     t.objectExpression([
       t.objectProperty(
         t.identifier('mode'),
-        buildMemberExpression('Phaser', 'Scale', 'FIT')
+        buildMemberExpression('Phaser', 'Scale', 'NONE')
       ),
       t.objectProperty(
         t.identifier('autoCenter'),
-        buildMemberExpression('Phaser', 'Scale', 'CENTER_BOTH')
+        buildMemberExpression('Phaser', 'Scale', 'NO_CENTER')
       ),
     ])
   );
@@ -153,7 +153,8 @@ function mergeObjectProperties(
     objExpr.properties.push(buildDefaultAudio());
   }
 
-  // Handle 'scale' property
+  // Handle 'scale' property — force NONE mode for WeChat Mini-Game
+  // (the canvas IS the screen, no DOM parent to scale into)
   if (existingProps.has('scale')) {
     const scaleProp = existingProps.get('scale')!;
     if (t.isObjectExpression(scaleProp.value)) {
@@ -164,19 +165,25 @@ function mergeObjectProperties(
           if (n) scaleProps.set(n, p);
         }
       }
-      if (!scaleProps.has('mode')) {
+      // Always override mode to NONE
+      if (scaleProps.has('mode')) {
+        scaleProps.get('mode')!.value = buildMemberExpression('Phaser', 'Scale', 'NONE');
+      } else {
         scaleProp.value.properties.push(
           t.objectProperty(
             t.identifier('mode'),
-            buildMemberExpression('Phaser', 'Scale', 'FIT')
+            buildMemberExpression('Phaser', 'Scale', 'NONE')
           )
         );
       }
-      if (!scaleProps.has('autoCenter')) {
+      // Always override autoCenter to NO_CENTER
+      if (scaleProps.has('autoCenter')) {
+        scaleProps.get('autoCenter')!.value = buildMemberExpression('Phaser', 'Scale', 'NO_CENTER');
+      } else {
         scaleProp.value.properties.push(
           t.objectProperty(
             t.identifier('autoCenter'),
-            buildMemberExpression('Phaser', 'Scale', 'CENTER_BOTH')
+            buildMemberExpression('Phaser', 'Scale', 'NO_CENTER')
           )
         );
       }

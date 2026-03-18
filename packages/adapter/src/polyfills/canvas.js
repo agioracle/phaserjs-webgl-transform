@@ -62,7 +62,14 @@ function wrapGetContext(canvas, eagleWebGL) {
 }
 
 function addDomSupport(canvas) {
-  if (!canvas.style) canvas.style = { width: '', height: '' };
+  // Provide a style object that reports the actual canvas dimensions.
+  // Phaser's ScaleManager reads style.width/height to determine the
+  // display size; empty strings cause it to compute 0×0.
+  if (!canvas.style || canvas.style.width === '') {
+    const w = canvas.width || info.screenWidth;
+    const h = canvas.height || info.screenHeight;
+    canvas.style = { width: w + 'px', height: h + 'px' };
+  }
 
   // Phaser reads tagName to identify element type
   if (!canvas.tagName) canvas.tagName = 'CANVAS';
