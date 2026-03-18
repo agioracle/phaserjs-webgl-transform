@@ -88,6 +88,56 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     sizeThreshold: config.assets.remoteSizeThreshold,
   };
 
+  // Bundle the adapter into a single CJS string first.
+  let adapterCode = '';
+  if (adapterPath && fs.existsSync(adapterPath)) {
+    const adapterBundle = await rollup({
+      input: adapterPath,
+      plugins: [nodeResolve(), commonjs()],
+    });
+    const adapterOutput = await adapterBundle.generate({
+      format: 'iife' as const,
+      name: '__phaserWxAdapter',
+    });
+    await adapterBundle.close();
+    adapterCode = adapterOutput.output[0].code;
+    // Write standalone adapter file too (for separate loading if needed)
+    fs.mkdirSync(config.output.dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(config.output.dir, 'phaser-wx-adapter.js'),
+      adapterCode,
+      'utf-8'
+    );
+  }
+
+  // Build a module-scope intro that:
+  // 1. Runs the adapter IIFE (sets up GameGlobal.window/document/etc.)
+  // 2. Creates module-scope var aliases so bare references like `document`
+  //    resolve to our polyfills even inside Phaser's nested webpack closures.
+  //    In CJS strict mode, bare `document` only resolves through the scope chain,
+  //    not globalThis. WeChat may also have its own partial `document` object
+  //    that lacks properties like `documentElement`.
+  const introLines = [];
+  if (adapterCode) {
+    introLines.push('// --- phaser-wx-adapter ---');
+    introLines.push(adapterCode);
+    introLines.push('// --- end adapter ---');
+  }
+  // Create module-scope aliases from GameGlobal polyfills
+  introLines.push('var _g = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;');
+  const globalAliases = [
+    'window', 'document', 'navigator', 'canvas',
+    'Image', 'Audio', 'AudioContext', 'webkitAudioContext',
+    'XMLHttpRequest', 'fetch', 'localStorage',
+    'HTMLElement', 'HTMLCanvasElement',
+  ];
+  for (const name of globalAliases) {
+    introLines.push(`var ${name} = _g.${name};`);
+  }
+  introLines.push('var self = _g.window || _g;');
+  introLines.push('');
+  const introCode = introLines.join('\n');
+
   const rollupConfig = {
     input: config.entry,
     plugins: [
@@ -101,23 +151,12 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   await bundle.write({
     file: path.join(config.output.dir, 'game-bundle.js'),
     format: 'cjs' as const,
+    // Use intro (inside the module wrapper) so var declarations create
+    // module-scope variables that shadow any environment globals.
+    intro: introCode,
+    strict: false, // Avoid 'use strict' which changes global resolution
   });
   await bundle.close();
-
-  // Bundle the adapter into a single CJS file for WeChat Mini-Game runtime.
-  // The adapter source uses ES module imports (./polyfills/window.js etc.)
-  // which WeChat's require() cannot resolve, so we must bundle it.
-  if (adapterPath && fs.existsSync(adapterPath)) {
-    const adapterBundle = await rollup({
-      input: adapterPath,
-      plugins: [nodeResolve(), commonjs()],
-    });
-    await adapterBundle.write({
-      file: path.join(config.output.dir, 'phaser-wx-adapter.js'),
-      format: 'cjs' as const,
-    });
-    await adapterBundle.close();
-  }
 
   // Post-build size check (exclude 'remote' subfolder)
   const localFiles = walkDir(config.output.dir, ['remote']);
