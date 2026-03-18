@@ -19,6 +19,58 @@ function addEventSupport(canvas) {
   return canvas;
 }
 
+function wrapGetContext(canvas) {
+  const _origGetContext = canvas.getContext.bind(canvas);
+  canvas.getContext = function(type, attrs) {
+    // Normalize type
+    const t = type.toLowerCase();
+
+    // For WebGL contexts, try with attributes first, then without.
+    // WeChat's canvas may not support all Phaser attributes
+    // (e.g. desynchronized, failIfMajorPerformanceCaveat).
+    if (t === 'webgl' || t === 'webgl2' || t === 'experimental-webgl') {
+      // Try original call first
+      let ctx = null;
+      try {
+        ctx = _origGetContext(t, attrs);
+      } catch (e) { /* ignore */ }
+      if (ctx) return ctx;
+
+      // Try with only safe attributes
+      if (attrs) {
+        const safeAttrs = {};
+        const safeKeys = ['alpha', 'depth', 'stencil', 'antialias', 'premultipliedAlpha', 'preserveDrawingBuffer'];
+        for (const k of safeKeys) {
+          if (attrs[k] !== undefined) safeAttrs[k] = attrs[k];
+        }
+        try {
+          ctx = _origGetContext(t, safeAttrs);
+        } catch (e) { /* ignore */ }
+        if (ctx) return ctx;
+      }
+
+      // Try without any attributes
+      try {
+        ctx = _origGetContext(t);
+      } catch (e) { /* ignore */ }
+      if (ctx) return ctx;
+
+      // Try 'webgl' if 'experimental-webgl' was asked (or vice versa)
+      if (t === 'experimental-webgl') {
+        try { ctx = _origGetContext('webgl'); } catch (e) { /* ignore */ }
+      }
+      return ctx;
+    }
+
+    // Non-WebGL contexts (2d, etc.)
+    try {
+      return _origGetContext(t, attrs);
+    } catch (e) {
+      return _origGetContext(t);
+    }
+  };
+}
+
 function addDomSupport(canvas) {
   if (!canvas.style) canvas.style = { width: '', height: '' };
 
@@ -94,6 +146,7 @@ function addDomSupport(canvas) {
 export function createPrimaryCanvas() {
   const canvas = wx.createCanvas();
   addEventSupport(canvas);
+  wrapGetContext(canvas);
   addDomSupport(canvas);
   GameGlobal.__wxCanvas = canvas;
   return canvas;
@@ -102,6 +155,7 @@ export function createPrimaryCanvas() {
 export function createOffscreenCanvas() {
   const canvas = wx.createCanvas();
   addEventSupport(canvas);
+  wrapGetContext(canvas);
   addDomSupport(canvas);
   return canvas;
 }
