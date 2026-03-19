@@ -42,6 +42,25 @@ function copyFilter(src: string): boolean {
   return true;
 }
 
+/**
+ * Recursively rewrite all `remote-assets/` references to `assets/` in JS files under `dir`.
+ */
+function rewriteRemoteAssetPaths(dir: string): void {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      rewriteRemoteAssetPaths(fullPath);
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      const updated = content.replace(/remote-assets\//g, 'assets/');
+      if (updated !== content) {
+        fs.writeFileSync(fullPath, updated);
+      }
+    }
+  }
+}
+
 export async function newCommand(
   projectName: string,
   options: NewOptions
@@ -133,6 +152,7 @@ export async function newCommand(
 
   // 4. If no CDN provided, move resource files from remote-assets/* to assets/*
   //    so the game works locally out of the box. Keep remote-assets dirs (with .gitkeep) intact.
+  //    Also rewrite asset load paths in JS source files (remote-assets/ → assets/).
   if (!answers.cdn) {
     const remoteAssetsDir = path.join(targetDir, 'public', 'remote-assets');
     const assetsDir = path.join(targetDir, 'public', 'assets');
@@ -151,6 +171,9 @@ export async function newCommand(
         }
       }
     }
+
+    // Rewrite remote-assets/ load paths to assets/ in all JS source files
+    rewriteRemoteAssetPaths(path.join(targetDir, 'src'));
   }
 
   console.log(`\n✅ Created project "${projectName}"!\n`);

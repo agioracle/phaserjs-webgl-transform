@@ -172,5 +172,18 @@ describe('newCommand', () => {
     // Original assets still intact
     expect(fs.existsSync(path.join(projectDir, 'public/assets/images/ball.png'))).toBe(true);
     expect(fs.existsSync(path.join(projectDir, 'public/assets/audio/ball_hit.mp3'))).toBe(true);
+    // BootScene load paths rewritten from remote-assets/ to assets/
+    const bootScene = fs.readFileSync(path.join(projectDir, 'src/scenes/BootScene.js'), 'utf-8');
+    expect(bootScene).not.toContain('remote-assets/');
+    expect(bootScene).toContain("'assets/images/game_logo.png'");
+    expect(bootScene).toContain("'assets/audio/bgm.mp3'");
+  });
+
+  it('keeps remote-assets load paths in BootScene when CDN is provided', async () => {
+    await newCommand('my-game', { template: 'full' });
+
+    const projectDir = path.join(testDir, 'my-game');
+    const bootScene = fs.readFileSync(path.join(projectDir, 'src/scenes/BootScene.js'), 'utf-8');
+    expect(bootScene).toContain('remote-assets/');
   });
 });
