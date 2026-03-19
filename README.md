@@ -53,7 +53,7 @@ phaser-wx new my-game
 
 - **AppID** — 微信小游戏 AppID（以 `wx` 开头）
 - **屏幕方向** — `landscape`（横屏）或 `portrait`（竖屏）
-- **CDN 地址** — 远程资源的 CDN 基础 URL
+- **CDN 地址** — 远程资源的 CDN 基础 URL。如果暂时不需要远程资源，可跳过不填
 
 生成的项目结构：
 
