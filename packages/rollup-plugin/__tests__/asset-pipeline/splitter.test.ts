@@ -160,8 +160,8 @@ describe('splitAssets', () => {
       expect(result.remote).toHaveLength(1);
       expect(result.local).toHaveLength(0);
       expect(result.remote[0].path).toBe(`${remoteAssetsDirName}/audio/bgm.mp3`);
-      // Remote-assets are also copied to outputDir for local DevTools preview
-      expect(fs.existsSync(path.join(outputDir, `${remoteAssetsDirName}/audio/bgm.mp3`))).toBe(true);
+      // Remote assets should NOT be copied to outputDir to prevent accidental packaging
+      expect(fs.existsSync(path.join(outputDir, `${remoteAssetsDirName}/audio/bgm.mp3`))).toBe(false);
     });
 
     it('scans remoteAssetsDir for files not referenced by loader calls', () => {

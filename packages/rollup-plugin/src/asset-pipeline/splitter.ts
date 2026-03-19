@@ -126,11 +126,9 @@ export function splitAssets(
     };
 
     // Check if this file lives under the remoteAssetsDir — force remote
+    // Remote assets are NOT copied to outputDir to prevent accidental
+    // packaging into the mini-game. Users must upload them to CDN manually.
     if (remoteAssetsDir && isUnderDir(absolutePath, remoteAssetsDir)) {
-      // Copy to outputDir so DevTools local preview works;
-      // in production, users remove these and serve from CDN.
-      const destPath = path.join(outputDir, ref.path);
-      copyFileWithDirs(absolutePath, destPath);
       result.remote.push(entry);
     } else if (size > threshold) {
       const destPath = path.join(remoteDir, ref.path);
@@ -168,9 +166,7 @@ export function splitAssets(
         type: inferTypeFromExt(relPath),
       };
 
-      // Copy to outputDir for local DevTools preview
-      const destPath = path.join(outputDir, relPath);
-      copyFileWithDirs(absolutePath, destPath);
+      // Remote assets are NOT copied to outputDir — only recorded in manifest
       result.remote.push(entry);
     }
   }
