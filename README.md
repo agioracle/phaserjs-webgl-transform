@@ -33,27 +33,19 @@ pnpm install
 pnpm build
 ```
 
-构建完成后，`phaser-wx` 命令可通过以下方式使用：
+构建完成后，全局链接 `phaser-wx` 命令：
 
 ```bash
-# 全局链接后直接使用（推荐）
 cd packages/cli && npm link && cd ../..
 phaser-wx --help
-
-# 或者在本仓库根目录下使用 pnpm exec 调用
-pnpm exec phaser-wx --help
 ```
 
-> **注意**：`@aspect/cli` 尚未发布到 npm，因此 `npx phaser-wx` 不可用。未全局链接时，请在本仓库根目录下使用 `pnpm exec phaser-wx`。
+> **注意**：`@aspect/cli` 尚未发布到 npm，因此 `npx phaser-wx` 不可用。请先执行上述全局链接步骤。
 
 ### 2. 创建新项目
 
 ```bash
-# 全局链接后直接使用（推荐）
 phaser-wx new my-game
-
-# 或在本仓库根目录下使用 pnpm exec 调用
-pnpm exec phaser-wx new my-game
 ```
 
 交互式引导会询问以下信息：
@@ -103,10 +95,6 @@ npm run build
 cd your-existing-project
 phaser-wx init
 phaser-wx build
-
-# 或使用 pnpm exec
-# pnpm exec phaser-wx init
-# pnpm exec phaser-wx build
 ```
 
 ## CLI 命令
@@ -116,12 +104,8 @@ phaser-wx build
 创建一个新的 Phaser.js + 微信小游戏项目，包含完整的场景模板、UI 组件和配置文件。
 
 ```bash
-# 推荐（全局链接后）
 phaser-wx new my-game
 phaser-wx new my-game --template full   # 等效，full 为默认模板
-
-# 或使用 pnpm exec
-pnpm exec phaser-wx new my-game
 ```
 
 ### `phaser-wx init`
@@ -129,11 +113,7 @@ pnpm exec phaser-wx new my-game
 在当前目录生成 `phaser-wx.config.json` 配置文件。适用于已有 Phaser.js 项目。
 
 ```bash
-# 推荐（全局链接后）
 phaser-wx init
-
-# 或使用 pnpm exec
-pnpm exec phaser-wx init
 ```
 
 ### `phaser-wx build`
@@ -141,15 +121,11 @@ pnpm exec phaser-wx init
 执行构建，将 Phaser.js 项目转换为微信小游戏。
 
 ```bash
-# 推荐（全局链接后）
 phaser-wx build
 phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
-
-# 或使用 pnpm exec
-pnpm exec phaser-wx build
 ```
 
-> **提示**：在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置为 `pnpm exec phaser-wx build`，直接使用即可。
+> **提示**：在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置为 `phaser-wx build`，直接使用即可。
 
 ## 配置文件
 
