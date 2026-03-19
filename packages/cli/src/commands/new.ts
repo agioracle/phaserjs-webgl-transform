@@ -75,8 +75,9 @@ export async function newCommand(
     {
       type: 'input',
       name: 'cdn',
-      message: 'CDN base URL for remote assets:',
+      message: 'CDN base URL for remote assets (leave empty to skip):',
       validate: (input: string) => {
+        if (input === '') return true;
         try {
           const url = new URL(input);
           if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -84,7 +85,7 @@ export async function newCommand(
           }
           return true;
         } catch {
-          return 'Please enter a valid URL';
+          return 'Please enter a valid URL or leave empty to skip';
         }
       },
     },
@@ -128,6 +129,28 @@ export async function newCommand(
     const readmeContent = fs.readFileSync(readmePath, 'utf-8');
     const updatedReadme = readmeContent.replace(/^# .+/, `# ${projectName}`);
     fs.writeFileSync(readmePath, updatedReadme);
+  }
+
+  // 4. If no CDN provided, move resource files from remote-assets/* to assets/*
+  //    so the game works locally out of the box. Keep remote-assets dirs (with .gitkeep) intact.
+  if (!answers.cdn) {
+    const remoteAssetsDir = path.join(targetDir, 'public', 'remote-assets');
+    const assetsDir = path.join(targetDir, 'public', 'assets');
+    if (fs.existsSync(remoteAssetsDir)) {
+      for (const subDir of fs.readdirSync(remoteAssetsDir, { withFileTypes: true })) {
+        if (!subDir.isDirectory()) continue;
+        const srcSub = path.join(remoteAssetsDir, subDir.name);
+        const destSub = path.join(assetsDir, subDir.name);
+        fs.mkdirSync(destSub, { recursive: true });
+        for (const file of fs.readdirSync(srcSub, { withFileTypes: true })) {
+          if (!file.isFile() || file.name === '.gitkeep') continue;
+          const srcFile = path.join(srcSub, file.name);
+          const destFile = path.join(destSub, file.name);
+          fs.copyFileSync(srcFile, destFile);
+          fs.unlinkSync(srcFile);
+        }
+      }
+    }
   }
 
   console.log(`\n✅ Created project "${projectName}"!\n`);

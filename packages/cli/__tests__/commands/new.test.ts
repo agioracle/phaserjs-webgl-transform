@@ -136,4 +136,41 @@ describe('newCommand', () => {
     expect(output).toContain('npm install');
     expect(output).toContain('phaser-wx build');
   });
+
+  it('keeps remote-assets files in place when CDN is provided', async () => {
+    await newCommand('my-game', { template: 'full' });
+
+    const projectDir = path.join(testDir, 'my-game');
+    // remote-assets files stay where they are
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/images/game_logo.png'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/audio/bgm.mp3'))).toBe(true);
+    // assets dir does NOT contain the remote files
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/images/game_logo.png'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/audio/bgm.mp3'))).toBe(false);
+  });
+
+  it('moves remote-assets files into assets when CDN is empty', async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValue({
+      ...MOCK_ANSWERS,
+      cdn: '',
+    });
+
+    await newCommand('my-game', { template: 'full' });
+
+    const projectDir = path.join(testDir, 'my-game');
+    // Files moved to assets
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/images/game_logo.png'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/audio/bgm.mp3'))).toBe(true);
+    expect(fs.statSync(path.join(projectDir, 'public/assets/images/game_logo.png')).size).toBeGreaterThan(0);
+    expect(fs.statSync(path.join(projectDir, 'public/assets/audio/bgm.mp3')).size).toBeGreaterThan(0);
+    // Original files removed from remote-assets
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/images/game_logo.png'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/audio/bgm.mp3'))).toBe(false);
+    // remote-assets directories and .gitkeep still exist
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/images/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/audio/.gitkeep'))).toBe(true);
+    // Original assets still intact
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/images/ball.png'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/audio/ball_hit.mp3'))).toBe(true);
+  });
 });
