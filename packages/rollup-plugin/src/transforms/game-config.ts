@@ -45,6 +45,18 @@ function buildDefaultAudio(): t.ObjectProperty {
   );
 }
 
+function buildDefaultLoader(): t.ObjectProperty {
+  return t.objectProperty(
+    t.identifier('loader'),
+    t.objectExpression([
+      t.objectProperty(
+        t.identifier('imageLoadType'),
+        t.stringLiteral('HTMLImageElement')
+      ),
+    ])
+  );
+}
+
 function buildDefaultScale(): t.ObjectProperty {
   return t.objectProperty(
     t.identifier('scale'),
@@ -190,6 +202,32 @@ function mergeObjectProperties(
     }
   } else {
     objExpr.properties.push(buildDefaultScale());
+  }
+
+  // Handle 'loader' property — inject imageLoadType: 'HTMLImageElement'
+  // This tells Phaser to load images via Image.src directly instead of XHR+Blob,
+  // which works natively with wx.createImage() for local file paths.
+  if (existingProps.has('loader')) {
+    const loaderProp = existingProps.get('loader')!;
+    if (t.isObjectExpression(loaderProp.value)) {
+      const loaderProps = new Map<string, t.ObjectProperty>();
+      for (const p of loaderProp.value.properties) {
+        if (t.isObjectProperty(p)) {
+          const n = getPropertyName(p);
+          if (n) loaderProps.set(n, p);
+        }
+      }
+      if (!loaderProps.has('imageLoadType')) {
+        loaderProp.value.properties.push(
+          t.objectProperty(
+            t.identifier('imageLoadType'),
+            t.stringLiteral('HTMLImageElement')
+          )
+        );
+      }
+    }
+  } else {
+    objExpr.properties.push(buildDefaultLoader());
   }
 }
 

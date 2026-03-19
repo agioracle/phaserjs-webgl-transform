@@ -34,8 +34,12 @@ const windowShim = {
   scrollX: 0, scrollY: 0,
   pageXOffset: 0, pageYOffset: 0,
 
-  // Touch support flag — Phaser checks 'ontouchstart' in window
-  ontouchstart: null,
+  // NOTE: 'ontouchstart' is intentionally NOT set here.
+  // Phaser's touch detection uses 'ontouchstart' in document.documentElement
+  // (set in document.js), which works fine. But Phaser's HTML5AudioSoundManager
+  // and HTML5AudioFile use 'ontouchstart' in window to lock audio playback,
+  // requiring a user gesture to unlock. WeChat Mini-Game has no autoplay
+  // restriction, so we avoid setting it here to prevent unnecessary audio locking.
 
   location: { href: 'game.js', protocol: 'https:', host: 'minigame', hostname: 'minigame', pathname: '/game.js', search: '', hash: '' },
 

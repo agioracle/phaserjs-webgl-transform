@@ -20,7 +20,6 @@ describe('generateFullTemplate', () => {
     expect(paths).toContain('src/scenes/BootScene.js');
     expect(paths).toContain('src/scenes/MenuScene.js');
     expect(paths).toContain('src/scenes/GameScene.js');
-    expect(paths).toContain('src/ui/Button.js');
     expect(paths).toContain('public/assets/images/.gitkeep');
     expect(paths).toContain('public/assets/audio/.gitkeep');
   });
@@ -80,17 +79,19 @@ describe('generateFullTemplate', () => {
     expect(boot).toContain("'MenuScene'");
   });
 
-  it('MenuScene has a start button that transitions to GameScene', () => {
+  it('MenuScene has a launch button that transitions to GameScene', () => {
     const files = generateFullTemplate(ctx);
     const menu = files.get('src/scenes/MenuScene.js')!;
-    expect(menu).toContain('Button');
+    expect(menu).toContain('Tap to Launch');
     expect(menu).toContain("'GameScene'");
   });
 
-  it('Button class extends Phaser.GameObjects.Text', () => {
+  it('GameScene contains Breakout gameplay with physics', () => {
     const files = generateFullTemplate(ctx);
-    const button = files.get('src/ui/Button.js')!;
-    expect(button).toContain('extends Phaser.GameObjects.Text');
-    expect(button).toContain('setInteractive');
+    const game = files.get('src/scenes/GameScene.js')!;
+    expect(game).toContain('paddle');
+    expect(game).toContain('ball');
+    expect(game).toContain('bricks');
+    expect(game).toContain('physics.add.collider');
   });
 });

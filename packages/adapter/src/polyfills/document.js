@@ -2,6 +2,9 @@ const _listeners = new Map();
 
 const info = typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { screenWidth: 375, screenHeight: 667 };
 
+// Import WxAudio so document.createElement('audio') returns a proper audio element
+import { WxAudio } from './audio.js';
+
 // Shared helper: make a wx canvas look enough like an HTMLCanvasElement
 // for Phaser's CanvasPool, feature-detection, and 2D helpers.
 function patchCanvas(canvas) {
@@ -59,6 +62,8 @@ function patchCanvas(canvas) {
   return canvas;
 }
 
+const _bodyListeners = new Map();
+
 const bodyStub = {
   clientWidth: info.screenWidth || 375,
   clientHeight: info.screenHeight || 667,
@@ -67,7 +72,32 @@ const bodyStub = {
   insertBefore() {},
   style: {},
   tagName: 'BODY',
+  addEventListener(type, listener) {
+    if (!_bodyListeners.has(type)) _bodyListeners.set(type, []);
+    _bodyListeners.get(type).push(listener);
+  },
+  removeEventListener(type, listener) {
+    const list = _bodyListeners.get(type);
+    if (!list) return;
+    const idx = list.indexOf(listener);
+    if (idx !== -1) list.splice(idx, 1);
+  },
+  dispatchEvent(event) {
+    const list = _bodyListeners.get(event.type);
+    if (list) list.forEach(fn => fn(event));
+  },
 };
+
+// Bridge WeChat touch events to document.body so Phaser's audio unlock
+// (which listens for 'touchend' on document.body) works properly.
+if (typeof wx !== 'undefined' && wx.onTouchEnd) {
+  wx.onTouchEnd(function () {
+    bodyStub.dispatchEvent({ type: 'touchend' });
+  });
+  wx.onTouchMove(function () {
+    bodyStub.dispatchEvent({ type: 'touchmove' });
+  });
+}
 
 const documentShim = {
   body: bodyStub,
@@ -92,6 +122,9 @@ const documentShim = {
     }
     if (tag === 'img' || tag === 'image') {
       return wx.createImage();
+    }
+    if (tag === 'audio') {
+      return new WxAudio();
     }
     // Stub element for anything else (style, div, etc.)
     return {

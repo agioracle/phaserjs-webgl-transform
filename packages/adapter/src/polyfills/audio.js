@@ -6,6 +6,13 @@ class WxAudio {
     this[_audioListeners] = new Map();
     this._paused = true;
 
+    // dataset — Phaser's HTML5AudioFile/HTML5AudioSound uses dataset.used,
+    // dataset.locked, dataset.name extensively for audio tag pooling.
+    this.dataset = {};
+
+    // preload — Phaser sets audio.preload = 'auto'
+    this.preload = 'auto';
+
     this._inner.onCanplay(() => this._emit('canplaythrough'));
     this._inner.onPlay(() => { this._paused = false; this._emit('play'); });
     this._inner.onPause(() => { this._paused = true; this._emit('pause'); });
@@ -34,7 +41,37 @@ class WxAudio {
 
   play() { this._inner.play(); return Promise.resolve(); }
   pause() { this._inner.pause(); }
-  load() { /* noop */ }
+
+  /**
+   * load — Phaser calls this to preload audio. When src is already set,
+   * WeChat's InnerAudioContext starts loading automatically on src assignment.
+   * We fire 'canplaythrough' asynchronously so Phaser's onProgress callback
+   * gets called and the file loading completes.
+   */
+  load() {
+    if (this._inner.src) {
+      // Fire canplaythrough in next tick — InnerAudioContext loads on src set
+      setTimeout(() => this._emit('canplaythrough'), 0);
+    }
+  }
+
+  /**
+   * canPlayType — Phaser calls this at boot to detect supported audio formats.
+   * WeChat InnerAudioContext supports mp3, aac, wav, ogg, etc.
+   */
+  canPlayType(mimeType) {
+    if (!mimeType || typeof mimeType !== 'string') return '';
+    const mime = mimeType.toLowerCase();
+    // mp3
+    if (mime.includes('mpeg') || mime.includes('mp3')) return 'probably';
+    // aac / m4a
+    if (mime.includes('aac') || mime.includes('mp4') || mime.includes('x-m4a')) return 'probably';
+    // wav
+    if (mime.includes('wav')) return 'probably';
+    // ogg
+    if (mime.includes('ogg')) return 'maybe';
+    return '';
+  }
 
   cloneNode() {
     const clone = new WxAudio();

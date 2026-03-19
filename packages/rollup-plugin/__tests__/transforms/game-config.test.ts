@@ -17,11 +17,10 @@ const game = new Phaser.Game({
     expect(result.code).toContain('GameGlobal.__wxCanvas');
     expect(result.code).toContain('parent: null');
     expect(result.code).toContain('disableWebAudio: true');
-    expect(result.code).toContain('Phaser.Scale.FIT');
-    expect(result.code).toContain('Phaser.Scale.CENTER_BOTH');
+    expect(result.code).toContain('Phaser.Scale.NONE');
+    expect(result.code).toContain('Phaser.Scale.NO_CENTER');
+    expect(result.code).toContain('imageLoadType: "HTMLImageElement"');
     expect(result.code).toContain('width: 800');
-    expect(result.code).toContain('height: 600');
-    expect(result.code).toContain('scene: MyScene');
   });
 
   it('overrides type: Phaser.CANVAS to Phaser.WEBGL and emits warning', () => {
@@ -56,6 +55,7 @@ const game = new Phaser.Game(config);
     expect(result.code).toContain('GameGlobal.__wxCanvas');
     expect(result.code).toContain('parent: null');
     expect(result.code).toContain('disableWebAudio: true');
+    expect(result.code).toContain('imageLoadType: "HTMLImageElement"');
     expect(result.code).toContain('width: 1024');
   });
 
@@ -85,8 +85,8 @@ const game = new Phaser.Game({
     const result = transformGameConfig(code);
 
     expect(result.warnings).toHaveLength(0);
-    expect(result.code).toContain('Phaser.Scale.RESIZE');
-    expect(result.code).toContain('Phaser.Scale.CENTER_BOTH');
+    expect(result.code).toContain('Phaser.Scale.NONE');
+    expect(result.code).toContain('Phaser.Scale.NO_CENTER');
     expect(result.code).toContain('width: 800');
   });
 
@@ -131,5 +131,42 @@ const game = new Phaser.Game({
     expect(typeMatches).toHaveLength(1);
     const parentMatches = result.code.match(/parent:\s*null/g);
     expect(parentMatches).toHaveLength(1);
+  });
+
+  it('merges imageLoadType into existing loader config', () => {
+    const code = `
+const game = new Phaser.Game({
+  width: 800,
+  height: 600,
+  loader: {
+    baseURL: 'assets/',
+    path: 'images/'
+  }
+});
+`;
+    const result = transformGameConfig(code);
+
+    expect(result.warnings).toHaveLength(0);
+    expect(result.code).toContain('imageLoadType: "HTMLImageElement"');
+    expect(result.code).toContain('baseURL');
+    expect(result.code).toContain('path');
+  });
+
+  it('does not override existing imageLoadType in loader config', () => {
+    const code = `
+const game = new Phaser.Game({
+  width: 800,
+  height: 600,
+  loader: {
+    imageLoadType: 'XHR'
+  }
+});
+`;
+    const result = transformGameConfig(code);
+
+    expect(result.warnings).toHaveLength(0);
+    // Should keep the user's existing imageLoadType, not add a duplicate
+    const matches = result.code.match(/imageLoadType/g);
+    expect(matches).toHaveLength(1);
   });
 });

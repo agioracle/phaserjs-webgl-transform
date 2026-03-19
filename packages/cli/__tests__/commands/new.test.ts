@@ -54,7 +54,6 @@ describe('newCommand', () => {
     expect(writtenPaths).toContain('src/scenes/BootScene.js');
     expect(writtenPaths).toContain('src/scenes/MenuScene.js');
     expect(writtenPaths).toContain('src/scenes/GameScene.js');
-    expect(writtenPaths).toContain('src/ui/Button.js');
   });
 
   it('writes valid JSON for package.json with phaser dependency', async () => {

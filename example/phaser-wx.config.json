@@ -1,0 +1,13 @@
+{
+  "appid": "wx4a4d257bc28799a0",
+  "orientation": "portrait",
+  "cdn": "https://cdn.example.com",
+  "entry": "src/main.js",
+  "assets": {
+    "dir": "public/assets",
+    "remoteSizeThreshold": 204800
+  },
+  "output": {
+    "dir": "dist-wx"
+  }
+}

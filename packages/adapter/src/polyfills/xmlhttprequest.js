@@ -9,7 +9,6 @@ function _isLocalPath(url) {
   if (/^\/\//.test(url)) return false;        // protocol-relative
   if (/^data:/i.test(url)) return false;
   if (/^blob:/i.test(url)) return false;
-  if (/^wxblob:/i.test(url)) return false;
   if (/^wxfile:/i.test(url)) return false;     // wx temp file protocol
   return true;
 }
@@ -22,6 +21,7 @@ export default class WxXMLHttpRequest {
     this.response = null;
     this.responseText = '';
     this.responseType = '';
+    this.responseURL = '';
     this.timeout = 0;
     this._method = 'GET';
     this._url = '';
@@ -35,6 +35,21 @@ export default class WxXMLHttpRequest {
     this.onreadystatechange = null;
     this.ontimeout = null;
     this.onabort = null;
+  }
+
+  /**
+   * Create a ProgressEvent-like object for onload/onerror callbacks.
+   * Phaser's File.onLoad expects event.target to be the XHR instance.
+   */
+  _createEvent(type) {
+    return {
+      type,
+      target: this,
+      currentTarget: this,
+      lengthComputable: false,
+      loaded: 0,
+      total: 0,
+    };
   }
 
   open(method, url) {
@@ -55,7 +70,7 @@ export default class WxXMLHttpRequest {
       return;
     }
 
-    const isBinary = this.responseType === 'arraybuffer' || this.responseType === 'blob';
+    const isBinary = this.responseType === 'arraybuffer';
 
     if (isBinary) {
       this._task = wx.downloadFile({
@@ -68,10 +83,11 @@ export default class WxXMLHttpRequest {
               const arrayBuffer = fs.readFileSync(res.tempFilePath);
               this.status = 200;
               this.statusText = 'OK';
+              this.responseURL = this._url;
               this.response = arrayBuffer;
               this.readyState = READY_STATE.DONE;
               if (this.onreadystatechange) this.onreadystatechange();
-              if (this.onload) this.onload();
+              if (this.onload) this.onload(this._createEvent('load'));
             } catch (err) {
               this._handleError(err);
             }
@@ -93,11 +109,12 @@ export default class WxXMLHttpRequest {
         success: (res) => {
           this.status = res.statusCode;
           this.statusText = res.statusCode === 200 ? 'OK' : '';
+          this.responseURL = this._url;
           this.response = res.data;
           this.responseText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
           this.readyState = READY_STATE.DONE;
           if (this.onreadystatechange) this.onreadystatechange();
-          if (this.onload) this.onload();
+          if (this.onload) this.onload(this._createEvent('load'));
         },
         fail: (err) => this._handleError(err),
       });
@@ -110,22 +127,24 @@ export default class WxXMLHttpRequest {
   _sendLocal() {
     try {
       const fsm = wx.getFileSystemManager();
-      const isBinary = this.responseType === 'arraybuffer' || this.responseType === 'blob';
+      const isBinary = this.responseType === 'arraybuffer';
 
       if (isBinary) {
         // Binary read — returns ArrayBuffer
         const arrayBuffer = fsm.readFileSync(this._url);
         this.status = 200;
         this.statusText = 'OK';
+        this.responseURL = this._url;
         this.response = arrayBuffer;
         this.readyState = READY_STATE.DONE;
         if (this.onreadystatechange) this.onreadystatechange();
-        if (this.onload) this.onload();
+        if (this.onload) this.onload(this._createEvent('load'));
       } else {
         // Text read
         const text = fsm.readFileSync(this._url, 'utf-8');
         this.status = 200;
         this.statusText = 'OK';
+        this.responseURL = this._url;
         if (this.responseType === 'json') {
           this.response = JSON.parse(text);
           this.responseText = text;
@@ -135,7 +154,7 @@ export default class WxXMLHttpRequest {
         }
         this.readyState = READY_STATE.DONE;
         if (this.onreadystatechange) this.onreadystatechange();
-        if (this.onload) this.onload();
+        if (this.onload) this.onload(this._createEvent('load'));
       }
     } catch (err) {
       this._handleError(err);
@@ -150,7 +169,7 @@ export default class WxXMLHttpRequest {
   _handleError(err) {
     this.readyState = READY_STATE.DONE;
     if (this.onreadystatechange) this.onreadystatechange();
-    if (this.onerror) this.onerror(err);
+    if (this.onerror) this.onerror(this._createEvent('error'));
   }
 
   getAllResponseHeaders() { return ''; }

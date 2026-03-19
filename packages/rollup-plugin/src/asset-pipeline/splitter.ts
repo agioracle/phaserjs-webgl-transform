@@ -45,7 +45,13 @@ export function splitAssets(
     if (seen.has(ref.path)) continue;
     seen.add(ref.path);
 
-    const absolutePath = path.join(assetsDir, ref.path);
+    // Try resolving from assetsDir first, then fall back to its parent dir.
+    // Phaser loader paths like 'assets/images/foo.png' are relative to the
+    // web root (e.g. 'public/'), while assetsDir is typically 'public/assets'.
+    let absolutePath = path.join(assetsDir, ref.path);
+    if (!fs.existsSync(absolutePath)) {
+      absolutePath = path.join(path.dirname(assetsDir), ref.path);
+    }
 
     if (!fs.existsSync(absolutePath)) {
       continue;

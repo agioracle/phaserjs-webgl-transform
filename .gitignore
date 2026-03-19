@@ -1,8 +1,10 @@
 node_modules/
 dist/
+dist-wx/
 *.log
 .DS_Store
 .idea/
 .vscode/
 *.tsbuildinfo
 coverage/
+_test_cli.cjs

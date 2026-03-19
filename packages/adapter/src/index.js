@@ -72,6 +72,31 @@ safeSet(_global, 'URL', WxURL);
 safeSet(_global, 'HTMLElement', _global.HTMLElement || function HTMLElement() {});
 safeSet(_global, 'HTMLCanvasElement', _global.HTMLCanvasElement || function HTMLCanvasElement() {});
 
+// Safe area information for notch/cutout avoidance.
+// Exposes raw physical screen values from wx.getWindowInfo().safeArea.
+// Game code should scale these to its own coordinate system:
+//   gameTop = safeArea.top * (gameHeight / screenHeight)
+const _wxWindowInfo = typeof wx !== 'undefined' && wx.getWindowInfo ? wx.getWindowInfo() : null;
+const _wxSafeArea = _wxWindowInfo && _wxWindowInfo.safeArea ? _wxWindowInfo.safeArea : null;
+const _screenHeight = _wxWindowInfo ? _wxWindowInfo.screenHeight : 0;
+
+const safeAreaData = {
+  // Insets in physical screen points
+  top: _wxSafeArea ? _wxSafeArea.top : 0,
+  bottom: _screenHeight && _wxSafeArea ? _screenHeight - _wxSafeArea.bottom : 0,
+  left: _wxSafeArea ? _wxSafeArea.left : 0,
+  right: _wxWindowInfo && _wxSafeArea ? _wxWindowInfo.screenWidth - _wxSafeArea.right : 0,
+  // Full safe area rect (physical screen points)
+  width: _wxSafeArea ? _wxSafeArea.width : 0,
+  height: _wxSafeArea ? _wxSafeArea.height : 0,
+  // Screen dimensions for ratio calculation
+  screenWidth: _wxWindowInfo ? _wxWindowInfo.screenWidth : 0,
+  screenHeight: _screenHeight,
+};
+
+safeSet(_global, '__safeArea', safeAreaData);
+safeSet(globalThis, '__safeArea', safeAreaData);
+
 // Also set on globalThis for Node-style access
 safeSet(globalThis, 'window', window);
 safeSet(globalThis, 'document', document);
