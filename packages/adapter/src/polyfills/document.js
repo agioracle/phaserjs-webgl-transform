@@ -49,7 +49,9 @@ function patchCanvas(canvas) {
   }
   if (!canvas.focus) canvas.focus = function() {};
   if (!canvas.parentNode) {
-    canvas.parentNode = {
+    // WeChat canvas objects may define parentNode as a read-only getter,
+    // so we must use Object.defineProperty to override it.
+    const parentNodeStub = {
       tagName: 'BODY',
       appendChild() {}, removeChild() {}, insertBefore() {},
       getBoundingClientRect() {
@@ -58,6 +60,21 @@ function patchCanvas(canvas) {
           width: info.screenWidth, height: info.screenHeight };
       },
     };
+    try {
+      canvas.parentNode = parentNodeStub;
+      if (canvas.parentNode !== parentNodeStub) throw new Error('setter failed');
+    } catch {
+      try {
+        Object.defineProperty(canvas, 'parentNode', {
+          value: parentNodeStub,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
+      } catch {
+        // Truly non-configurable; skip silently
+      }
+    }
   }
   return canvas;
 }

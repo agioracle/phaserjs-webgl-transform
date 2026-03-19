@@ -116,121 +116,78 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     );
   }
 
-  // Build a module-scope intro that:
-  // 1. Runs the adapter code inline (sets up GameGlobal polyfills + exports)
-  // 2. Creates module-scope var aliases from the adapter's EXPORTS, not from
-  //    GameGlobal properties. This guarantees the polyfill objects are used
-  //    even if safeSet fails to override WeChat's read-only globals.
-  //    Bare references like `document` inside Phaser's webpack closures
-  //    resolve up the scope chain to these module-scope vars.
+  // Build a module-scope intro that creates var aliases from the adapter's
+  // CJS exports (captured into GameGlobal.__adapterExports by game.js).
+  // We cannot read from GameGlobal.window etc. directly because WeChat
+  // defines some of them as read-only getters that safeSet may silently
+  // fail to override, leaving them undefined.
+  // Bare references like `document` inside Phaser resolve up the scope chain
+  // to these module-scope vars, ensuring polyfills are used.
   const introLines = [];
-  if (adapterCode) {
-    // Wrap adapter in a function that captures its CJS exports
-    introLines.push('// --- phaser-wx-adapter (inline) ---');
-    introLines.push('var __adapter_exports = (function() {');
-    introLines.push('  var module = { exports: {} }; var exports = module.exports;');
-    introLines.push(adapterCode);
-    introLines.push('  return module.exports;');
-    introLines.push('})();');
-    introLines.push('// --- end adapter ---');
-    introLines.push('');
-    // Create module-scope aliases from adapter exports (guaranteed correct)
-    const aliasMap = [
-      ['window', 'window'],
-      ['document', 'document'],
-      ['navigator', 'navigator'],
-      ['canvas', 'canvas'],
-      ['screen', 'screen'],
-      ['Image', 'Image'],
-      ['Audio', 'Audio'],
-      ['AudioContext', 'AudioContext'],
-      ['XMLHttpRequest', 'XMLHttpRequest'],
-      ['fetch', 'fetch'],
-      ['localStorage', 'localStorage'],
-      ['Blob', 'Blob'],
-      ['URL', 'URL'],
-    ];
-    for (const [varName, exportName] of aliasMap) {
-      introLines.push(`var ${varName} = __adapter_exports.${exportName};`);
-    }
-    introLines.push('var webkitAudioContext = __adapter_exports.AudioContext;');
-    introLines.push('var self = __adapter_exports.window;');
-    // Timer and animation frame — use window polyfill's implementations
-    introLines.push('var setTimeout = __adapter_exports.window.setTimeout;');
-    introLines.push('var clearTimeout = __adapter_exports.window.clearTimeout;');
-    introLines.push('var setInterval = __adapter_exports.window.setInterval;');
-    introLines.push('var clearInterval = __adapter_exports.window.clearInterval;');
-    introLines.push('var requestAnimationFrame = __adapter_exports.window.requestAnimationFrame;');
-    introLines.push('var cancelAnimationFrame = __adapter_exports.window.cancelAnimationFrame;');
-    introLines.push('var HTMLElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLElement || function HTMLElement() {};');
-    introLines.push('var HTMLCanvasElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLCanvasElement || function HTMLCanvasElement() {};');
+  // _ae = adapter exports (guaranteed correct), _g = GameGlobal fallback
+  introLines.push('var _g = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;');
+  introLines.push('var _ae = _g.__adapterExports || {};');
+  introLines.push('var window = _ae.window || _g.window;');
+  introLines.push('var document = _ae.document || _g.document;');
+  introLines.push('var navigator = _ae.navigator || _g.navigator;');
+  introLines.push('var canvas = _ae.canvas || _g.canvas;');
+  introLines.push('var screen = _ae.screen || _g.screen || {};');
+  introLines.push('var Image = _ae.Image || _g.Image;');
+  introLines.push('var Audio = _ae.Audio || _g.Audio;');
+  introLines.push('var AudioContext = _ae.AudioContext || _g.AudioContext;');
+  introLines.push('var XMLHttpRequest = _ae.XMLHttpRequest || _g.XMLHttpRequest;');
+  introLines.push('var fetch = _ae.fetch || _g.fetch;');
+  introLines.push('var localStorage = _ae.localStorage || _g.localStorage;');
+  introLines.push('var Blob = _ae.Blob || _g.Blob;');
+  introLines.push('var URL = _ae.URL || _g.URL;');
+  introLines.push('var webkitAudioContext = _ae.AudioContext || _g.AudioContext;');
+  introLines.push('var self = _ae.window || _g.window;');
+  introLines.push('var setTimeout = (_ae.window || _g.window || {}).setTimeout;');
+  introLines.push('var clearTimeout = (_ae.window || _g.window || {}).clearTimeout;');
+  introLines.push('var setInterval = (_ae.window || _g.window || {}).setInterval;');
+  introLines.push('var clearInterval = (_ae.window || _g.window || {}).clearInterval;');
+  introLines.push('var requestAnimationFrame = (_ae.window || _g.window || {}).requestAnimationFrame;');
+  introLines.push('var cancelAnimationFrame = (_ae.window || _g.window || {}).cancelAnimationFrame;');
+  introLines.push('var HTMLElement = _g.HTMLElement || function HTMLElement() {};');
+  introLines.push('var HTMLCanvasElement = _g.HTMLCanvasElement || function HTMLCanvasElement() {};');
 
-    // --- Remote asset loader initializer ---
-    // Called by injected code right before `new Phaser.Game(config)`.
-    // At that point Phaser module has been evaluated, so Phaser.Loader exists.
-    //
-    // Strategy: patch LoaderPlugin.prototype.start to rewrite remote asset URLs
-    // to CDN full URLs BEFORE any File.load() is called.
-    //
-    // How Phaser resolves URLs:
-    //   file.url  = user-supplied path (e.g. 'remote-assets/images/logo.png')
-    //   file.src  = GetURL(file, baseURL) — if file.url starts with http/https,
-    //              returns file.url as-is; otherwise prepends baseURL.
-    //   ImageFile:  Image.src = this.src
-    //   AudioFile:  Audio.src = this.url  (HTML5AudioFile uses url directly)
-    //
-    // So we rewrite file.url to the full CDN URL. GetURL will see it starts
-    // with https:// and return it unchanged. Both image and audio paths work.
-    introLines.push('');
-    introLines.push('// --- Remote asset loader ---');
-    introLines.push('var __remoteAssetLoaderInitialized = false;');
-    introLines.push('function __initRemoteAssetLoader(Phaser) {');
-    introLines.push('  if (__remoteAssetLoaderInitialized) return;');
-    introLines.push('  __remoteAssetLoaderInitialized = true;');
-    introLines.push('  try {');
-    introLines.push('    var _fs = wx.getFileSystemManager();');
-    introLines.push('    var manifestStr = _fs.readFileSync("asset-manifest.json", "utf-8");');
-    introLines.push('    var manifest = JSON.parse(manifestStr);');
-    introLines.push('    if (!manifest || !manifest.assets) return;');
-    introLines.push('    var hasRemote = false;');
-    introLines.push('    for (var k in manifest.assets) { if (manifest.assets[k].remote) { hasRemote = true; break; } }');
-    introLines.push('    if (!hasRemote) return;');
-    introLines.push('    var _cdnBase = manifest.cdnBase || "";');
-    introLines.push('    if (_cdnBase && _cdnBase[_cdnBase.length - 1] !== "/") _cdnBase += "/";');
-    introLines.push('    var _origStart = Phaser.Loader.LoaderPlugin.prototype.start;');
-    introLines.push('    Phaser.Loader.LoaderPlugin.prototype.start = function() {');
-    introLines.push('      var entries = this.list && this.list.entries;');
-    introLines.push('      if (entries) {');
-    introLines.push('        for (var i = 0; i < entries.length; i++) {');
-    introLines.push('          var file = entries[i];');
-    introLines.push('          var fileUrl = file.url || "";');
-    introLines.push('          var entry = manifest.assets[fileUrl];');
-    introLines.push('          if (entry && entry.remote) {');
-    introLines.push('            file.url = _cdnBase + fileUrl;');
-    introLines.push('          }');
-    introLines.push('        }');
-    introLines.push('      }');
-    introLines.push('      return _origStart.apply(this, arguments);');
-    introLines.push('    };');
-    introLines.push('  } catch(e) { /* manifest not found or parse error — no remote assets */ }');
-    introLines.push('}');
-    introLines.push('// --- end remote asset loader ---');
-  } else {
-    // Fallback: alias from GameGlobal (less reliable)
-    introLines.push('var _g = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;');
-    const globalAliases = [
-      'window', 'document', 'navigator', 'canvas',
-      'Image', 'Audio', 'AudioContext', 'webkitAudioContext',
-      'XMLHttpRequest', 'fetch', 'localStorage',
-      'HTMLElement', 'HTMLCanvasElement',
-    ];
-    for (const name of globalAliases) {
-      introLines.push(`var ${name} = _g.${name};`);
-    }
-    introLines.push('var self = _g.window || _g;');
-    // Noop for fallback path — remote assets won't work without adapter
-    introLines.push('function __initRemoteAssetLoader() {}');
-  }
+  // --- Remote asset loader initializer ---
+  // Called by injected code right before `new Phaser.Game(config)`.
+  // At that point Phaser module has been evaluated, so Phaser.Loader exists.
+  introLines.push('');
+  introLines.push('// --- Remote asset loader ---');
+  introLines.push('var __remoteAssetLoaderInitialized = false;');
+  introLines.push('function __initRemoteAssetLoader(Phaser) {');
+  introLines.push('  if (__remoteAssetLoaderInitialized) return;');
+  introLines.push('  __remoteAssetLoaderInitialized = true;');
+  introLines.push('  try {');
+  introLines.push('    var _fs = wx.getFileSystemManager();');
+  introLines.push('    var manifestStr = _fs.readFileSync("asset-manifest.json", "utf-8");');
+  introLines.push('    var manifest = JSON.parse(manifestStr);');
+  introLines.push('    if (!manifest || !manifest.assets) return;');
+  introLines.push('    var hasRemote = false;');
+  introLines.push('    for (var k in manifest.assets) { if (manifest.assets[k].remote) { hasRemote = true; break; } }');
+  introLines.push('    if (!hasRemote) return;');
+  introLines.push('    var _cdnBase = manifest.cdnBase || "";');
+  introLines.push('    if (_cdnBase && _cdnBase[_cdnBase.length - 1] !== "/") _cdnBase += "/";');
+  introLines.push('    var _origStart = Phaser.Loader.LoaderPlugin.prototype.start;');
+  introLines.push('    Phaser.Loader.LoaderPlugin.prototype.start = function() {');
+  introLines.push('      var entries = this.list && this.list.entries;');
+  introLines.push('      if (entries) {');
+  introLines.push('        for (var i = 0; i < entries.length; i++) {');
+  introLines.push('          var file = entries[i];');
+  introLines.push('          var fileUrl = file.url || "";');
+  introLines.push('          var entry = manifest.assets[fileUrl];');
+  introLines.push('          if (entry && entry.remote) {');
+  introLines.push('            file.url = _cdnBase + fileUrl;');
+  introLines.push('          }');
+  introLines.push('        }');
+  introLines.push('      }');
+  introLines.push('      return _origStart.apply(this, arguments);');
+  introLines.push('    };');
+  introLines.push('  } catch(e) { /* manifest not found or parse error — no remote assets */ }');
+  introLines.push('}');
+  introLines.push('// --- end remote asset loader ---');
   introLines.push('');
   const introCode = introLines.join('\n');
 
@@ -245,10 +202,17 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
 
   const bundle = await rollup(rollupConfig);
   await bundle.write({
-    file: path.join(config.output.dir, 'game-bundle.js'),
+    dir: config.output.dir,
     format: 'cjs' as const,
-    // Use intro (inside the module wrapper) so var declarations create
-    // module-scope variables that shadow any environment globals.
+    manualChunks: {
+      'phaser-engine': ['phaser'],
+    },
+    chunkFileNames: '[name].js',
+    entryFileNames: 'game-bundle.js',
+    // Inject intro into ALL chunks so that Phaser code in phaser-engine.js
+    // also gets module-scope var aliases (window, document, etc.).
+    // Each CJS chunk has its own scope, so bare `window` references in
+    // phaser-engine.js would be undefined without these aliases.
     intro: introCode,
     strict: false, // Avoid 'use strict' which changes global resolution
   });

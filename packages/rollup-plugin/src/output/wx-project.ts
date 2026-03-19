@@ -14,10 +14,15 @@ export function generateWxProject(config: WxProjectConfig): void {
   fs.mkdirSync(outputDir, { recursive: true });
 
   // game.js
-  const gameJs = `require('./phaser-wx-adapter.js');
+  // Capture adapter CJS exports into a custom (writable) GameGlobal property.
+  // We cannot rely on GameGlobal.window etc. because WeChat defines them as
+  // read-only getters that safeSet may silently fail to override.
+  // The intro code in each chunk reads from __adapterExports instead.
+  const gameJs = `GameGlobal.__adapterExports = require('./phaser-wx-adapter.js');
 if (typeof GameGlobal.__wxCustomAdapter !== 'undefined') {
   require('./phaser-wx-custom-adapter.js');
 }
+require('./phaser-engine.js');
 require('./game-bundle.js');
 `;
   fs.writeFileSync(path.join(outputDir, 'game.js'), gameJs, 'utf-8');

@@ -57,12 +57,20 @@ describe('Full Pipeline Integration', () => {
     expect(fs.existsSync(OUTPUT_DIR)).toBe(true);
   });
 
-  it('generates game.js', () => {
+  it('generates game.js with correct require order', () => {
     const gameJs = path.join(OUTPUT_DIR, 'game.js');
     expect(fs.existsSync(gameJs)).toBe(true);
     const content = fs.readFileSync(gameJs, 'utf-8');
-    expect(content).toContain("require('./phaser-wx-adapter.js')");
+    // Adapter exports are captured into GameGlobal.__adapterExports
+    expect(content).toContain("__adapterExports = require('./phaser-wx-adapter.js')");
+    expect(content).toContain("require('./phaser-engine.js')");
     expect(content).toContain("require('./game-bundle.js')");
+    // Verify correct order: adapter → engine → bundle
+    const adapterIdx = content.indexOf("require('./phaser-wx-adapter.js')");
+    const engineIdx = content.indexOf("require('./phaser-engine.js')");
+    const bundleIdx = content.indexOf("require('./game-bundle.js')");
+    expect(adapterIdx).toBeLessThan(engineIdx);
+    expect(engineIdx).toBeLessThan(bundleIdx);
   });
 
   it('generates game.json with correct orientation', () => {
