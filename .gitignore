@@ -8,3 +8,4 @@ dist-wx/
 *.tsbuildinfo
 coverage/
 _test_cli.cjs
+package-lock.json
