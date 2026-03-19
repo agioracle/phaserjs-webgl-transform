@@ -32,6 +32,9 @@ importers:
       commander:
         specifier: ^12.1.0
         version: 12.1.0
+      esbuild:
+        specifier: ^0.27.4
+        version: 0.27.4
       inquirer:
         specifier: ^9.3.7
         version: 9.3.8(@types/node@25.5.0)

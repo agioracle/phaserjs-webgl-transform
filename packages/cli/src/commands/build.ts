@@ -48,7 +48,7 @@ const SIZE_LIMIT_WARN = 16_777_216; // 16MB
 export async function buildCommand(options: BuildOptions): Promise<void> {
   // Lazy imports: rollup and plugins are external and only needed for build
   const { rollup } = await import('rollup');
-  const { phaserWxTransform } = await import('@aspect/rollup-plugin');
+  const { phaserWxTransform, scanAssets } = await import('@aspect/rollup-plugin');
   const nodeResolve = (await import('@rollup/plugin-node-resolve')).default;
   const commonjs = (await import('@rollup/plugin-commonjs')).default;
 
@@ -191,6 +191,9 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   introLines.push('');
   const introCode = introLines.join('\n');
 
+  // Pass subpackages config to the plugin so it can generate correct game.json
+  (pluginOptions as any).subpackages = config.subpackages;
+
   const rollupConfig = {
     input: config.entry,
     plugins: [
@@ -200,8 +203,9 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     ],
   };
 
-  const bundle = await rollup(rollupConfig);
-  await bundle.write({
+  // --- Main bundle build (game-bundle.js + phaser-engine) ---
+  const mainBundle = await rollup(rollupConfig);
+  const { output: mainChunks } = await mainBundle.generate({
     dir: config.output.dir,
     format: 'cjs' as const,
     manualChunks: {
@@ -209,17 +213,140 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     },
     chunkFileNames: '[name].js',
     entryFileNames: 'game-bundle.js',
-    // Inject intro into ALL chunks so that Phaser code in phaser-engine.js
-    // also gets module-scope var aliases (window, document, etc.).
-    // Each CJS chunk has its own scope, so bare `window` references in
-    // phaser-engine.js would be undefined without these aliases.
     intro: introCode,
-    strict: false, // Avoid 'use strict' which changes global resolution
+    strict: false,
   });
-  await bundle.close();
+  await mainBundle.close();
 
-  // Post-build size check (exclude 'remote' subfolder)
-  const localFiles = walkDir(config.output.dir, ['remote']);
+  // Write chunks, minify phaser-engine with esbuild → engine/ subpackage
+  const { transform: esbuildTransform } = await import('esbuild');
+  for (const chunk of mainChunks) {
+    if (chunk.type !== 'chunk') continue;
+    let code = chunk.code;
+    let fileName = chunk.fileName;
+
+    if (chunk.name === 'phaser-engine') {
+      console.log(`  Minifying Phaser engine with esbuild...`);
+      const minified = await esbuildTransform(code, { minify: true, target: 'es2015' });
+      code = minified.code;
+      fileName = 'engine/phaser-engine.min.js';
+    } else {
+      // Rewrite cross-chunk require to point at the engine subpackage location.
+      // Rollup generates require('./phaser-engine.js') but we moved it to engine/.
+      code = code.replace(
+        /require\(['"]\.\/phaser-engine\.js['"]\)/g,
+        "require('engine/phaser-engine.min.js')"
+      );
+      // Expose Phaser globally so scene subpackages can access it.
+      // game-bundle.js resolves Phaser through the engine chunk's helper functions;
+      // scene subpackages (built separately) cannot re-derive it the same way.
+      if (chunk.isEntry) {
+        code += '\nif (typeof GameGlobal !== "undefined" && typeof Phaser !== "undefined") { GameGlobal.Phaser = Phaser; }\n';
+      }
+    }
+
+    const outPath = path.join(config.output.dir, fileName);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, code, 'utf-8');
+  }
+
+  // --- Scene subpackage builds ---
+  for (const sub of config.subpackages) {
+    console.log(`  Building subpackage: ${sub.name} (${sub.entry})`);
+    const sceneBundle = await rollup({
+      input: sub.entry,
+      external: ['phaser'], // Phaser is already loaded globally from engine subpackage
+      plugins: [
+        nodeResolve({ browser: true }),
+        commonjs(),
+      ],
+    });
+    const outFile = path.join(config.output.dir, sub.root, sub.outputFile);
+    // Use generate() instead of write() so we can post-process the output
+    const { output: sceneChunks } = await sceneBundle.generate({
+      file: outFile,
+      format: 'cjs' as const,
+      intro: introCode,
+      strict: false,
+    });
+    await sceneBundle.close();
+
+    // Write scene chunks, replacing require('phaser') with GameGlobal.Phaser
+    // and fixing cross-subpackage require paths (make them relative from this subpackage)
+    for (const sceneChunk of sceneChunks) {
+      if (sceneChunk.type !== 'chunk') continue;
+      let sceneCode = sceneChunk.code;
+      // Replace external phaser require with global reference.
+      sceneCode = sceneCode.replace(
+        /require\(['"]phaser['"]\)/g,
+        'GameGlobal.Phaser'
+      );
+      // Fix cross-subpackage require paths.
+      // Source code uses root-relative paths like require('game-play/game-scene.js'),
+      // but in WeChat require() resolves relative to the current file.
+      // Since this file is inside sub.root (e.g. 'menu/'), we need '../' prefix.
+      for (const otherSub of config.subpackages) {
+        if (otherSub.name === sub.name) continue;
+        const rootPrefix = otherSub.root.replace(/\/$/, '');
+        // Match require('game-play/...') and rewrite to require('../game-play/...')
+        const pattern = new RegExp(
+          `require\\(['"]${rootPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`,
+          'g'
+        );
+        sceneCode = sceneCode.replace(pattern, `require('../${rootPrefix}/`);
+      }
+      fs.mkdirSync(path.dirname(outFile), { recursive: true });
+      fs.writeFileSync(outFile, sceneCode, 'utf-8');
+    }
+
+    // Scan scene source for asset references (e.g. this.load.image/audio calls)
+    // and copy local assets into the subpackage directory (not root) so they
+    // don't count against main package size. Also rewrite asset paths in the
+    // built JS to point at the subpackage-local copy.
+    const sceneSource = fs.readFileSync(sub.entry, 'utf-8');
+    const sceneAssetRefs = scanAssets(sceneSource);
+    const assetPathRewrites: Array<{ original: string; rewritten: string }> = [];
+
+    for (const ref of sceneAssetRefs) {
+      // Skip remote-assets — they are loaded from CDN, not bundled
+      if (ref.path.startsWith('remote-assets/')) continue;
+
+      // Resolve source file
+      let srcPath = path.join(path.dirname(config.assets.dir), ref.path);
+      if (!fs.existsSync(srcPath)) {
+        srcPath = path.join(config.assets.dir, ref.path);
+      }
+      if (!fs.existsSync(srcPath)) continue;
+
+      // Copy to subpackage directory: e.g. dist-wx/game-play/assets/images/ball.png
+      const destPath = path.join(config.output.dir, sub.root, ref.path);
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      fs.copyFileSync(srcPath, destPath);
+
+      // Record rewrite: 'assets/images/ball.png' → 'game-play/assets/images/ball.png'
+      const rewrittenPath = sub.root + ref.path;
+      if (rewrittenPath !== ref.path) {
+        assetPathRewrites.push({ original: ref.path, rewritten: rewrittenPath });
+      }
+    }
+
+    // Rewrite asset paths in the built scene JS
+    if (assetPathRewrites.length > 0) {
+      let updatedCode = fs.readFileSync(outFile, 'utf-8');
+      for (const { original, rewritten } of assetPathRewrites) {
+        // Replace string literals: 'assets/...' or "assets/..."
+        updatedCode = updatedCode.split(original).join(rewritten);
+      }
+      fs.writeFileSync(outFile, updatedCode, 'utf-8');
+    }
+  }
+
+  // Post-build size check (exclude 'remote' and subpackage directories)
+  const excludeDirs = ['remote', 'engine'];
+  for (const sub of config.subpackages) {
+    excludeDirs.push(sub.root.replace(/\/$/, ''));
+  }
+  const localFiles = walkDir(config.output.dir, excludeDirs);
   const totalSize = localFiles.reduce((sum, f) => sum + f.size, 0);
 
   // Count remote assets from manifest

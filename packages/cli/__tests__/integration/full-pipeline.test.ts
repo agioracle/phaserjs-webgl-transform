@@ -57,20 +57,20 @@ describe('Full Pipeline Integration', () => {
     expect(fs.existsSync(OUTPUT_DIR)).toBe(true);
   });
 
-  it('generates game.js with correct require order', () => {
+  it('generates game.js with async engine subpackage loading', () => {
     const gameJs = path.join(OUTPUT_DIR, 'game.js');
     expect(fs.existsSync(gameJs)).toBe(true);
     const content = fs.readFileSync(gameJs, 'utf-8');
-    // Adapter exports are captured into GameGlobal.__adapterExports
+    // Engine loaded asynchronously via wx.loadSubpackage
+    expect(content).toContain("wx.loadSubpackage");
+    expect(content).toContain("engine");
+    // Inside success callback: adapter → engine → game-bundle
     expect(content).toContain("__adapterExports = require('./phaser-wx-adapter.js')");
-    expect(content).toContain("require('./phaser-engine.js')");
+    expect(content).toContain("require('engine/phaser-engine.min.js')");
     expect(content).toContain("require('./game-bundle.js')");
-    // Verify correct order: adapter → engine → bundle
-    const adapterIdx = content.indexOf("require('./phaser-wx-adapter.js')");
-    const engineIdx = content.indexOf("require('./phaser-engine.js')");
-    const bundleIdx = content.indexOf("require('./game-bundle.js')");
-    expect(adapterIdx).toBeLessThan(engineIdx);
-    expect(engineIdx).toBeLessThan(bundleIdx);
+    // No manual canvas progress bar — platform handles loading UI
+    expect(content).not.toContain("getContext('2d')");
+    expect(content).not.toContain("_drawProgress");
   });
 
   it('generates game.json with correct orientation', () => {

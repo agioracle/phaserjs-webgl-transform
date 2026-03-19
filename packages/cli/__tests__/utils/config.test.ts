@@ -40,6 +40,7 @@ const FULL_CONFIG_WITH_DEFAULTS: PhaserWxConfig = {
     antialias: false,
     preserveDrawingBuffer: false,
   },
+  subpackages: [],
 };
 
 describe('loadConfig', () => {

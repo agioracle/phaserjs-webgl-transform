@@ -8,6 +8,6 @@ export default defineConfig({
   banner: {
     js: '#!/usr/bin/env node',
   },
-  external: ['rollup', '@aspect/rollup-plugin', '@rollup/plugin-node-resolve', '@rollup/plugin-commonjs'],
-  noExternal: [/^(?!rollup$|@aspect\/rollup-plugin$|@rollup\/plugin-node-resolve$|@rollup\/plugin-commonjs$)/],
+  external: ['rollup', '@aspect/rollup-plugin', '@rollup/plugin-node-resolve', '@rollup/plugin-commonjs', 'esbuild'],
+  noExternal: [/^(?!rollup$|@aspect\/rollup-plugin$|@rollup\/plugin-node-resolve$|@rollup\/plugin-commonjs$|esbuild$)/],
 });

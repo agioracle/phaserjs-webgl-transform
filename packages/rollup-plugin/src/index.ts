@@ -26,6 +26,8 @@ export interface PhaserWxTransformOptions {
   sizeThreshold?: number;
   /** Directory containing assets that should always be treated as remote */
   remoteAssetsDir?: string;
+  /** Scene subpackages configuration */
+  subpackages?: { name: string; root: string }[];
 }
 
 const TRANSFORMABLE_EXTENSIONS = /\.(js|ts|jsx|tsx)$/;
@@ -44,6 +46,7 @@ export function phaserWxTransform(options: PhaserWxTransformOptions): Plugin {
     cdnBase,
     sizeThreshold = 1024 * 1024,
     remoteAssetsDir = '',
+    subpackages = [],
   } = options;
 
   const collectedAssetRefs: AssetReference[] = [];
@@ -116,6 +119,7 @@ export function phaserWxTransform(options: PhaserWxTransformOptions): Plugin {
         adapterPath,
         orientation,
         appid,
+        subpackages,
       });
     },
   };

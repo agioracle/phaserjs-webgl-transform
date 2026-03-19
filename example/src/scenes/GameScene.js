@@ -18,6 +18,12 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
+  preload() {
+    // Load GameScene-specific assets
+    this.load.image('ball', 'assets/images/ball.png');
+    this.load.audio('ball_hit', 'assets/audio/ball_hit.mp3');
+  }
+
   create() {
     const W = this.cameras.main.width;   // 750
     const H = this.cameras.main.height;  // 1334

@@ -6,6 +6,31 @@ export class MenuScene extends Phaser.Scene {
     super({ key: 'MenuScene' });
   }
 
+  preload() {
+    // bgm is a remote asset — loaded from CDN via remote asset loader,
+    // or from local assets/ if no CDN (new command rewrites the path)
+    this.load.audio('bgm', 'remote-assets/audio/bgm.mp3');
+
+    // Parallel: preload game-play subpackage
+    this._gameReady = false;
+    if (typeof wx !== 'undefined' && wx.loadSubpackage) {
+      wx.loadSubpackage({
+        name: 'game-play',
+        success: () => {
+          const { GameScene } = require('game-play/game-scene.js');
+          this.scene.add('GameScene', GameScene, false);
+          this._gameReady = true;
+        },
+        fail: (err) => {
+          console.error('Failed to load game-play subpackage:', err);
+        },
+      });
+    } else {
+      // Fallback for non-WeChat environments
+      this._gameReady = true;
+    }
+  }
+
   create() {
     const W = this.cameras.main.width;
     const H = this.cameras.main.height;
@@ -46,7 +71,19 @@ export class MenuScene extends Phaser.Scene {
     btn.setInteractive({ useHandCursor: true });
 
     btn.on('pointerdown', () => {
-      this.scene.start('GameScene');
+      if (this._gameReady) {
+        this.scene.start('GameScene');
+      } else {
+        // Wait for game-play subpackage
+        const waitAndStart = () => {
+          if (this._gameReady) {
+            this.scene.start('GameScene');
+          } else {
+            this.time.delayedCall(100, waitAndStart);
+          }
+        };
+        waitAndStart();
+      }
     });
 
     // Pulsing animation on the button

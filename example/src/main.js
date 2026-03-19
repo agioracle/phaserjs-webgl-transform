@@ -1,7 +1,5 @@
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene.js';
-import { MenuScene } from './scenes/MenuScene.js';
-import { GameScene } from './scenes/GameScene.js';
 
 const config = {
   type: Phaser.WEBGL,
@@ -15,7 +13,7 @@ const config = {
       checkCollision: { up: true, down: true, left: true, right: true },
     },
   },
-  scene: [BootScene, MenuScene, GameScene],
+  scene: [BootScene], // Only BootScene in main bundle; other scenes loaded from subpackages
 };
 
 const game = new Phaser.Game(config);

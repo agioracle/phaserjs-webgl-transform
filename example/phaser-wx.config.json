@@ -10,5 +10,19 @@
   },
   "output": {
     "dir": "dist-wx"
-  }
+  },
+  "subpackages": [
+    {
+      "name": "menu",
+      "root": "menu/",
+      "entry": "src/scenes/MenuScene.js",
+      "outputFile": "menu-scene.js"
+    },
+    {
+      "name": "game-play",
+      "root": "game-play/",
+      "entry": "src/scenes/GameScene.js",
+      "outputFile": "game-scene.js"
+    }
+  ]
 }

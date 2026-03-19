@@ -1,6 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+export interface SubpackageConfig {
+  name: string;
+  root: string;
+  entry: string;
+  outputFile: string;
+}
+
 export interface PhaserWxConfig {
   appid: string;
   orientation: 'portrait' | 'landscape';
@@ -22,6 +29,7 @@ export interface PhaserWxConfig {
     antialias: boolean;
     preserveDrawingBuffer: boolean;
   };
+  subpackages: SubpackageConfig[];
 }
 
 const ASSET_DEFAULTS = {
@@ -99,6 +107,29 @@ export function loadConfig(configPath?: string): PhaserWxConfig {
 
   const assets = (parsed.assets ?? {}) as Record<string, unknown>;
   const webgl = (parsed.webgl ?? {}) as Record<string, unknown>;
+  const rawSubpackages = (parsed.subpackages ?? []) as Record<string, unknown>[];
+
+  // Parse subpackages
+  const subpackages: SubpackageConfig[] = rawSubpackages.map((sub) => {
+    if (!sub.name || typeof sub.name !== 'string') {
+      throw new Error('Config validation error: each subpackage must have a "name" string.');
+    }
+    if (!sub.root || typeof sub.root !== 'string') {
+      throw new Error(`Config validation error: subpackage "${sub.name}" must have a "root" string.`);
+    }
+    if (!sub.entry || typeof sub.entry !== 'string') {
+      throw new Error(`Config validation error: subpackage "${sub.name}" must have an "entry" string.`);
+    }
+    if (!sub.outputFile || typeof sub.outputFile !== 'string') {
+      throw new Error(`Config validation error: subpackage "${sub.name}" must have an "outputFile" string.`);
+    }
+    return {
+      name: sub.name,
+      root: sub.root,
+      entry: sub.entry,
+      outputFile: sub.outputFile,
+    };
+  });
 
   return {
     appid: parsed.appid,
@@ -136,5 +167,6 @@ export function loadConfig(configPath?: string): PhaserWxConfig {
           ? webgl.preserveDrawingBuffer
           : WEBGL_DEFAULTS.preserveDrawingBuffer,
     },
+    subpackages,
   };
 }

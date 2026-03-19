@@ -45,6 +45,7 @@ phaser-wx --help
 ### 2. 创建新项目
 
 ```bash
+# 创建新项目。注意尽量在其他目录中创建新项目，避免与模板项目冲突！
 phaser-wx new my-game
 ```
 

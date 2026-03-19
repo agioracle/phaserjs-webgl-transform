@@ -30,17 +30,46 @@ export class BootScene extends Phaser.Scene {
       this.fillBar.width = barWidth * value;
     });
 
-    // --- Load your assets here ---
-    // Local assets (from public/assets/)
-    this.load.image('ball', 'assets/images/ball.png');
-    this.load.audio('ball_hit', 'assets/audio/ball_hit.mp3');
-
-    // Remote assets (from public/remote-assets/, loaded via CDN at runtime)
+    // --- Load BootScene assets only ---
+    // Logo displayed on loading screen — remote asset loaded from CDN,
+    // or from local assets/ if no CDN (new command rewrites the path)
     this.load.image('game_logo', 'remote-assets/images/game_logo.png');
-    this.load.audio('bgm', 'remote-assets/audio/bgm.mp3');
+
+    // --- Parallel: load menu subpackage ---
+    this._menuReady = false;
+    if (typeof wx !== 'undefined' && wx.loadSubpackage) {
+      wx.loadSubpackage({
+        name: 'menu',
+        success: () => {
+          const { MenuScene } = require('menu/menu-scene.js');
+          this.scene.add('MenuScene', MenuScene, false);
+          this._menuReady = true;
+        },
+        fail: (err) => {
+          console.error('Failed to load menu subpackage:', err);
+        },
+      });
+    } else {
+      // Fallback for non-WeChat environments (dev/test):
+      // MenuScene should already be registered or import dynamically
+      this._menuReady = true;
+    }
   }
 
   create() {
+    const proceed = () => {
+      if (this._menuReady) {
+        this.scene.start('MenuScene');
+      } else {
+        // Wait for menu subpackage to finish loading
+        this.time.delayedCall(100, proceed);
+      }
+    };
+
+    // Show logo above progress bar
+    const { width } = this.cameras.main;
+    this.add.image(width / 2, this.cameras.main.height / 2 - 150, 'game_logo').setOrigin(0.5, 0.5);
+
     // Simulate a 1-second loading animation so the progress bar is visible
     this.tweens.add({
       targets: this.fillBar,
@@ -49,9 +78,7 @@ export class BootScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
       onComplete: () => {
         this.loadingText.setText('Complete!');
-        this.time.delayedCall(200, () => {
-          this.scene.start('MenuScene');
-        });
+        this.time.delayedCall(200, proceed);
       },
     });
   }
