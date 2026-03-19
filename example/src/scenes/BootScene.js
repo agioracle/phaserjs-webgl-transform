@@ -41,8 +41,10 @@ export class BootScene extends Phaser.Scene {
       wx.loadSubpackage({
         name: 'menu',
         success: () => {
-          const { MenuScene } = require('menu/menu-scene.js');
-          this.scene.add('MenuScene', MenuScene, false);
+          if (!this.scene.get('MenuScene')) {
+            const { MenuScene } = require('menu/menu-scene.js');
+            this.scene.add('MenuScene', MenuScene, false);
+          }
           this._menuReady = true;
         },
         fail: (err) => {

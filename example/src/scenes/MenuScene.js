@@ -17,8 +17,10 @@ export class MenuScene extends Phaser.Scene {
       wx.loadSubpackage({
         name: 'game-play',
         success: () => {
-          const { GameScene } = require('game-play/game-scene.js');
-          this.scene.add('GameScene', GameScene, false);
+          if (!this.scene.get('GameScene')) {
+            const { GameScene } = require('game-play/game-scene.js');
+            this.scene.add('GameScene', GameScene, false);
+          }
           this._gameReady = true;
         },
         fail: (err) => {
