@@ -63,17 +63,22 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   console.log(`  Output: ${config.output.dir}`);
   console.log(`  CDN: ${config.cdn}`);
 
-  // Resolve adapter path from monorepo
+  // Resolve adapter path: walk up from __dirname to find monorepo root (pnpm-workspace.yaml),
+  // then use packages/adapter/src/index.js. This works regardless of where cwd is.
   let adapterPath = '';
-  try {
-    const adapterPkg = require.resolve('@aspect/adapter/package.json');
-    adapterPath = path.join(path.dirname(adapterPkg), 'src', 'index.js');
-  } catch {
-    try {
-      const pluginPkg = require.resolve('@aspect/rollup-plugin/package.json');
-      adapterPath = path.resolve(path.dirname(pluginPkg), '..', 'adapter', 'src', 'index.js');
-    } catch {
-      // adapter path will remain empty
+  {
+    let dir = __dirname;
+    while (true) {
+      if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+        const candidate = path.join(dir, 'packages', 'adapter', 'src', 'index.js');
+        if (fs.existsSync(candidate)) {
+          adapterPath = candidate;
+        }
+        break;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
     }
   }
 
