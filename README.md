@@ -36,12 +36,12 @@ pnpm build
 构建完成后，`phaser-wx` 命令可通过以下方式使用：
 
 ```bash
-# 在本仓库根目录下使用 pnpm exec 调用
-pnpm exec phaser-wx --help
-
-# 或者全局链接后直接使用（推荐）
+# 全局链接后直接使用（推荐）
 cd packages/cli && npm link && cd ../..
 phaser-wx --help
+
+# 或者在本仓库根目录下使用 pnpm exec 调用
+pnpm exec phaser-wx --help
 ```
 
 > **注意**：`@aspect/cli` 尚未发布到 npm，因此 `npx phaser-wx` 不可用。未全局链接时，请在本仓库根目录下使用 `pnpm exec phaser-wx`。
