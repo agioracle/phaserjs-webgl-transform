@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 
-vi.mock('node:fs');
 vi.mock('inquirer', () => ({
   default: {
     prompt: vi.fn(),
@@ -19,6 +19,8 @@ describe('newCommand', () => {
     cdn: 'https://cdn.example.com/assets',
   };
 
+  let originalCwd: string;
+  let testDir: string;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
   let processExitSpy: ReturnType<typeof vi.spyOn>;
@@ -29,77 +31,91 @@ describe('newCommand', () => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     vi.mocked(inquirer.prompt).mockResolvedValue(MOCK_ANSWERS);
-    vi.mocked(fs.existsSync).mockReturnValue(false);
-    vi.mocked(fs.mkdirSync).mockImplementation(() => undefined as any);
-    vi.mocked(fs.writeFileSync).mockImplementation(() => {});
+
+    // Create a temp directory to scaffold projects into
+    testDir = fs.mkdtempSync(path.join(tmpdir(), 'phaser-wx-test-'));
+    originalCwd = process.cwd();
+    process.chdir(testDir);
   });
 
   afterEach(() => {
+    process.chdir(originalCwd);
     consoleLogSpy.mockRestore();
     consoleErrorSpy.mockRestore();
     processExitSpy.mockRestore();
+    // Clean up temp directory
+    fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('creates all expected files in the project directory', async () => {
+  it('copies expected files from example directory', async () => {
     await newCommand('my-game', { template: 'full' });
 
-    const writtenPaths = vi.mocked(fs.writeFileSync).mock.calls.map(
-      ([p]) => path.relative(path.resolve(process.cwd(), 'my-game'), p as string)
-    );
-
-    expect(writtenPaths).toContain('package.json');
-    expect(writtenPaths).toContain('phaser-wx.config.json');
-    expect(writtenPaths).toContain('README.md');
-    expect(writtenPaths).toContain('src/main.js');
-    expect(writtenPaths).toContain('src/scenes/BootScene.js');
-    expect(writtenPaths).toContain('src/scenes/MenuScene.js');
-    expect(writtenPaths).toContain('src/scenes/GameScene.js');
+    const projectDir = path.join(testDir, 'my-game');
+    expect(fs.existsSync(path.join(projectDir, 'package.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'phaser-wx.config.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'README.md'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'src/main.js'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'src/scenes/BootScene.js'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'src/scenes/MenuScene.js'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'src/scenes/GameScene.js'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'src/utils/safe-area.js'))).toBe(true);
+    // Asset files (not just directories) are copied
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/images/ball.png'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'public/assets/audio/ball_hit.mp3'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/images/game_logo.png'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'public/remote-assets/audio/bgm.mp3'))).toBe(true);
+    // Verify they are actual files with content, not empty
+    expect(fs.statSync(path.join(projectDir, 'public/assets/images/ball.png')).size).toBeGreaterThan(0);
+    expect(fs.statSync(path.join(projectDir, 'public/assets/audio/ball_hit.mp3')).size).toBeGreaterThan(0);
   });
 
-  it('writes valid JSON for package.json with phaser dependency', async () => {
+  it('replaces project name in package.json', async () => {
     await newCommand('my-game', { template: 'full' });
 
-    const pkgCall = vi.mocked(fs.writeFileSync).mock.calls.find(
-      ([p]) => (p as string).endsWith('package.json') && !(p as string).includes('phaser-wx')
-    );
-    expect(pkgCall).toBeDefined();
-    const parsed = JSON.parse(pkgCall![1] as string);
-    expect(parsed.name).toBe('my-game');
-    expect(parsed.dependencies.phaser).toBeDefined();
-    expect(parsed.scripts.dev).toBeDefined();
+    const pkgPath = path.join(testDir, 'my-game', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    expect(pkg.name).toBe('my-game');
+    expect(pkg.dependencies.phaser).toBeDefined();
+    expect(pkg.scripts.dev).toBeDefined();
   });
 
-  it('writes config with prompted appid, orientation, and cdn', async () => {
+  it('replaces appid, orientation, and cdn in phaser-wx.config.json', async () => {
     await newCommand('my-game', { template: 'full' });
 
-    const cfgCall = vi.mocked(fs.writeFileSync).mock.calls.find(
-      ([p]) => (p as string).endsWith('phaser-wx.config.json')
-    );
-    expect(cfgCall).toBeDefined();
-    const parsed = JSON.parse(cfgCall![1] as string);
-    expect(parsed.appid).toBe('wxabcdef1234567890');
-    expect(parsed.orientation).toBe('landscape');
-    expect(parsed.cdn).toBe('https://cdn.example.com/assets');
+    const configPath = path.join(testDir, 'my-game', 'phaser-wx.config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.appid).toBe('wxabcdef1234567890');
+    expect(config.orientation).toBe('landscape');
+    expect(config.cdn).toBe('https://cdn.example.com/assets');
+  });
+
+  it('replaces project name in README.md title', async () => {
+    await newCommand('my-game', { template: 'full' });
+
+    const readmePath = path.join(testDir, 'my-game', 'README.md');
+    const readme = fs.readFileSync(readmePath, 'utf-8');
+    expect(readme).toMatch(/^# my-game/);
+    expect(readme).not.toContain('# phaser-wx-example');
+  });
+
+  it('excludes node_modules, dist-wx, .DS_Store, and package-lock.json', async () => {
+    await newCommand('my-game', { template: 'full' });
+
+    const projectDir = path.join(testDir, 'my-game');
+    expect(fs.existsSync(path.join(projectDir, 'node_modules'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, 'dist-wx'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.DS_Store'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, 'package-lock.json'))).toBe(false);
   });
 
   it('exits with error if directory already exists', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const projectDir = path.join(testDir, 'my-game');
+    fs.mkdirSync(projectDir);
 
     await newCommand('my-game', { template: 'full' });
 
     expect(processExitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(fs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  it('creates directories with recursive flag', async () => {
-    await newCommand('my-game', { template: 'full' });
-
-    const mkdirCalls = vi.mocked(fs.mkdirSync).mock.calls;
-    expect(mkdirCalls.length).toBeGreaterThan(0);
-    for (const [, opts] of mkdirCalls) {
-      expect(opts).toEqual({ recursive: true });
-    }
   });
 
   it('prompts for appid, orientation, and cdn', async () => {
