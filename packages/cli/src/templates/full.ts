@@ -15,8 +15,11 @@ export function generateFullTemplate(ctx: TemplateContext): Map<string, string> 
   files.set('src/scenes/BootScene.js', bootSceneJs());
   files.set('src/scenes/MenuScene.js', menuSceneJs(ctx));
   files.set('src/scenes/GameScene.js', gameSceneJs());
+  files.set('src/utils/safe-area.js', safeAreaJs());
   files.set('public/assets/images/.gitkeep', '');
   files.set('public/assets/audio/.gitkeep', '');
+  files.set('public/remote-assets/images/.gitkeep', '');
+  files.set('public/remote-assets/audio/.gitkeep', '');
 
   return files;
 }
@@ -48,6 +51,7 @@ function configJson(ctx: TemplateContext): string {
     entry: 'src/main.js',
     assets: {
       dir: 'public/assets',
+      remoteAssetsDir: 'public/remote-assets',
       remoteSizeThreshold: 204800,
     },
     output: {
@@ -84,22 +88,37 @@ src/
     BootScene.js       Loading screen with progress bar
     MenuScene.js       Title screen with Tap to Launch
     GameScene.js       Breakout game scene
+  utils/
+    safe-area.js       Safe area insets utility (notch/home indicator)
 public/
-  assets/
+  assets/              Local assets (bundled into mini-game package)
     images/            Image assets (png, jpg, webp)
     audio/             Audio assets (mp3, ogg)
+  remote-assets/       Remote assets (uploaded to CDN, NOT bundled)
+    images/            Large images loaded from CDN at runtime
+    audio/             Large audio loaded from CDN at runtime
 phaser-wx.config.json  WeChat Mini-Game build configuration
 \`\`\`
 
-## WeChat Mini-Game Build
+## Asset Management
 
-The \`npm run build\` command uses \`phaser-wx\` to:
+| Directory | Type | Behavior |
+|-----------|------|----------|
+| \`public/assets/\` | Local | Bundled into mini-game package, loaded directly |
+| \`public/remote-assets/\` | Remote | **NOT bundled**. Marked \`remote: true\` in \`asset-manifest.json\`, loaded from CDN at runtime |
 
-1. Transform Phaser.js code for WeChat Mini-Game compatibility
-2. Split assets between local package and CDN
-3. Generate WeChat project files (game.js, game.json, project.config.json)
+**Local assets** — small, frequently used resources (UI icons, sound effects, small images).
 
-Output is written to \`dist-wx/\`. Open it in WeChat DevTools to preview.
+**Remote assets** — large resources (background music, HD images) that would bloat the mini-game package (WeChat 20MB limit).
+
+### Deployment
+
+After \`npm run build\`:
+
+1. Upload \`public/remote-assets/\` contents to your CDN (preserving directory structure)
+2. Open \`dist-wx/\` in WeChat DevTools
+
+> Remote assets are **not** copied to \`dist-wx/\` to prevent accidental packaging.
 
 ## Configuration
 
@@ -108,6 +127,7 @@ Edit \`phaser-wx.config.json\` to change:
 - **appid**: Your WeChat Mini-Game AppID
 - **orientation**: Screen orientation (portrait / landscape)
 - **cdn**: CDN base URL for remote assets
+- **assets.remoteAssetsDir**: Directory for remote assets (default: \`public/remote-assets\`)
 - **assets.remoteSizeThreshold**: Size threshold (bytes) for CDN offloading
 `;
 }
@@ -175,8 +195,13 @@ export class BootScene extends Phaser.Scene {
     });
 
     // --- Load your assets here ---
-    // this.load.image('logo', 'assets/images/logo.png');
-    // this.load.audio('bgm', 'assets/audio/bgm.mp3');
+    // Local assets (from public/assets/)
+    this.load.image('ball', 'assets/images/ball.png');
+    this.load.audio('ball_hit', 'assets/audio/ball_hit.mp3');
+
+    // Remote assets (from public/remote-assets/, loaded via CDN at runtime)
+    // this.load.image('game_logo', 'remote-assets/images/game_logo.png');
+    // this.load.audio('bgm', 'remote-assets/audio/bgm.mp3');
   }
 
   create() {
@@ -200,6 +225,7 @@ export class BootScene extends Phaser.Scene {
 
 function menuSceneJs(ctx: TemplateContext): string {
   return `import Phaser from 'phaser';
+import { getSafeArea } from '../utils/safe-area.js';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -209,23 +235,28 @@ export class MenuScene extends Phaser.Scene {
   create() {
     const W = this.cameras.main.width;
     const H = this.cameras.main.height;
+    const sa = getSafeArea(this);
+
+    // Usable vertical range (between safe area insets)
+    const saTop = sa.top;
+    const saH = H - sa.top - sa.bottom;
 
     // Title
-    this.add.text(W / 2, H * 0.3, '${ctx.projectName}', {
+    this.add.text(W / 2, saTop + saH * 0.25, '${ctx.projectName}', {
       fontSize: '52px',
       fontStyle: 'bold',
       color: '#ffffff',
     }).setOrigin(0.5, 0.5);
 
     // Description
-    this.add.text(W / 2, H * 0.42, 'Classic brick-breaking game\\nSwipe to move paddle, break all bricks!', {
+    this.add.text(W / 2, saTop + saH * 0.38, 'Classic brick-breaking game\\nSwipe to move paddle, break all bricks!', {
       fontSize: '24px',
       color: '#aaaaaa',
       align: 'center',
     }).setOrigin(0.5, 0.5);
 
     // Tap to Launch button
-    const btn = this.add.text(W / 2, H * 0.6, 'Tap to Launch', {
+    const btn = this.add.text(W / 2, saTop + saH * 0.55, 'Tap to Launch', {
       fontSize: '36px',
       color: '#ffffff',
     }).setOrigin(0.5, 0.5).setAlpha(0.8);
@@ -251,6 +282,7 @@ export class MenuScene extends Phaser.Scene {
 
 function gameSceneJs(): string {
   return `import Phaser from 'phaser';
+import { getSafeArea } from '../utils/safe-area.js';
 
 // Color palette for brick rows
 const ROW_COLORS = [
@@ -272,6 +304,9 @@ export class GameScene extends Phaser.Scene {
   create() {
     const W = this.cameras.main.width;
     const H = this.cameras.main.height;
+    const sa = getSafeArea(this);
+
+    this.safeArea = sa;
 
     // ── State ──
     this.score = 0;
@@ -279,15 +314,18 @@ export class GameScene extends Phaser.Scene {
     this.gameOver = false;
     this.waiting = false; // true when ball is on paddle waiting for tap
 
-    // ── Paddle ──
-    this.paddle = this.add.rectangle(W / 2, H - 120, 150, 20, 0xe8e8e8);
+    // ── Paddle — offset from bottom safe area ──
+    const paddleY = H - sa.bottom - 100;
+    this.paddle = this.add.rectangle(W / 2, paddleY, 150, 20, 0xe8e8e8);
     this.physics.add.existing(this.paddle, false);
     this.paddle.body.setImmovable(true);
     this.paddle.body.allowGravity = false;
     this.paddle.body.setCollideWorldBounds(true);
 
-    // ── Ball ──
-    this.ball = this.add.circle(W / 2, H - 145, 14, 0xffffff);
+    // ── Ball — placed above paddle ──
+    const ballY = paddleY - 25;
+    this.ball = this.add.image(W / 2, ballY, 'ball');
+    this.ball.setDisplaySize(28, 28);
     this.physics.add.existing(this.ball, false);
     this.ball.body.setCollideWorldBounds(true, 1, 1, false);
     // Disable bottom-edge bounce so ball falls out
@@ -295,18 +333,19 @@ export class GameScene extends Phaser.Scene {
     this.ball.body.setBounce(1, 1);
     this.ball.body.allowGravity = false;
     this.ball.body.setMaxVelocity(700, 700);
+    // Make the physics body circular
     this.ball.body.setCircle(14);
 
-    // ── Bricks ──
+    // ── Bricks — offset below top safe area ──
     this.bricks = this.physics.add.staticGroup();
-    this.buildBricks(W);
+    this.buildBricks(W, sa.top);
 
-    // ── HUD ──
-    this.scoreText = this.add.text(24, 20, 'Score: 0', {
+    // ── HUD — offset from top safe area ──
+    this.scoreText = this.add.text(24, sa.top + 16, 'Score: 0', {
       fontSize: '28px', color: '#ffffff', fontStyle: 'bold',
     }).setDepth(10);
 
-    this.livesText = this.add.text(W - 24, 20, '\\u2764 3', {
+    this.livesText = this.add.text(W - 24, sa.top + 16, '\\u2764 3', {
       fontSize: '28px', color: '#ff4757', fontStyle: 'bold',
     }).setOrigin(1, 0).setDepth(10);
 
@@ -350,7 +389,7 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  buildBricks(W) {
+  buildBricks(W, safeTop) {
     const cols = 8;
     const rows = ROW_COLORS.length;
     const brickW = 76;
@@ -359,7 +398,8 @@ export class GameScene extends Phaser.Scene {
     const padY = 8;
     const totalW = cols * (brickW + padX) - padX;
     const startX = (W - totalW) / 2 + brickW / 2;
-    const startY = 160;
+    // Start bricks below HUD, accounting for safe area
+    const startY = safeTop + 80;
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -368,6 +408,7 @@ export class GameScene extends Phaser.Scene {
         const brick = this.add.rectangle(x, y, brickW, brickH, ROW_COLORS[row]);
         this.bricks.add(brick);
         brick.body.updateFromGameObject();
+        // Higher rows = more points
         brick.setData('points', (rows - row) * 10);
       }
     }
@@ -376,9 +417,10 @@ export class GameScene extends Phaser.Scene {
   // ── Collision callbacks ──
 
   hitPaddle(ball, paddle) {
+    this.sound.play('ball_hit', { volume: 0.3 });
     const diff = ball.x - paddle.x;
-    const norm = diff / (paddle.width / 2);
-    const angle = norm * 60;
+    const norm = diff / (paddle.width / 2); // -1 to 1
+    const angle = norm * 60; // max \\u00b160\\u00b0
     const speed = Math.max(
       Math.sqrt(ball.body.velocity.x ** 2 + ball.body.velocity.y ** 2),
       400
@@ -391,16 +433,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   hitBrick(ball, brick) {
+    this.sound.play('ball_hit', { volume: 0.3 });
     const points = brick.getData('points') || 10;
     this.score += points;
     this.scoreText.setText('Score: ' + this.score);
 
     brick.destroy();
 
+    // Speed up slightly
     const vx = ball.body.velocity.x;
     const vy = ball.body.velocity.y;
     ball.body.setVelocity(vx * 1.01, vy * 1.01);
 
+    // Win check
     if (this.bricks.countActive() === 0) {
       this.winGame();
     }
@@ -411,6 +456,7 @@ export class GameScene extends Phaser.Scene {
   update() {
     if (this.gameOver) return;
 
+    // Ball fell below screen
     if (this.ball.y > this.cameras.main.height + 20) {
       this.lives--;
       this.livesText.setText('\\u2764 ' + this.lives);
@@ -422,6 +468,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Prevent ball from going purely horizontal (boring)
     if (!this.waiting && Math.abs(this.ball.body.velocity.y) < 80) {
       this.ball.body.velocity.y = this.ball.body.velocity.y < 0 ? -80 : 80;
     }
@@ -429,8 +476,7 @@ export class GameScene extends Phaser.Scene {
 
   resetBall() {
     this.waiting = true;
-    const H = this.cameras.main.height;
-    this.ball.setPosition(this.paddle.x, H - 145);
+    this.ball.setPosition(this.paddle.x, this.paddle.y - 25);
     this.ball.body.setVelocity(0, 0);
   }
 
@@ -471,6 +517,38 @@ export class GameScene extends Phaser.Scene {
       fontSize: '28px', color: '#ffffff',
     }).setOrigin(0.5, 0.5).setDepth(20).setAlpha(0.5);
   }
+}
+`;
+}
+
+function safeAreaJs(): string {
+  return `/**
+ * Get safe area insets in game coordinates.
+ *
+ * GameGlobal.__safeArea provides physical screen points.
+ * This helper converts them to the game's coordinate system
+ * based on the Phaser camera dimensions.
+ *
+ * Usage:
+ *   const sa = getSafeArea(this);  // in a Phaser Scene
+ *   this.add.text(24, sa.top + 20, 'Score: 0', ...);
+ *
+ * @param {Phaser.Scene} scene - The current Phaser scene
+ * @returns {{ top: number, bottom: number, left: number, right: number }}
+ */
+export function getSafeArea(scene) {
+  const raw = (typeof GameGlobal !== 'undefined' && GameGlobal.__safeArea) || {};
+  const gameW = scene.cameras.main.width;
+  const gameH = scene.cameras.main.height;
+  const screenW = raw.screenWidth || gameW;
+  const screenH = raw.screenHeight || gameH;
+
+  return {
+    top: (raw.top || 0) * (gameH / screenH),
+    bottom: (raw.bottom || 0) * (gameH / screenH),
+    left: (raw.left || 0) * (gameW / screenW),
+    right: (raw.right || 0) * (gameW / screenW),
+  };
 }
 `;
 }

@@ -20,8 +20,11 @@ describe('generateFullTemplate', () => {
     expect(paths).toContain('src/scenes/BootScene.js');
     expect(paths).toContain('src/scenes/MenuScene.js');
     expect(paths).toContain('src/scenes/GameScene.js');
+    expect(paths).toContain('src/utils/safe-area.js');
     expect(paths).toContain('public/assets/images/.gitkeep');
     expect(paths).toContain('public/assets/audio/.gitkeep');
+    expect(paths).toContain('public/remote-assets/images/.gitkeep');
+    expect(paths).toContain('public/remote-assets/audio/.gitkeep');
   });
 
   it('interpolates project name into package.json', () => {
@@ -33,13 +36,14 @@ describe('generateFullTemplate', () => {
     expect(pkg.scripts.build).toBe('pnpm exec phaser-wx build');
   });
 
-  it('writes config with correct appid, orientation, cdn', () => {
+  it('writes config with correct appid, orientation, cdn, remoteAssetsDir', () => {
     const files = generateFullTemplate(ctx);
     const config = JSON.parse(files.get('phaser-wx.config.json')!);
     expect(config.appid).toBe('wx1234567890abcdef');
     expect(config.orientation).toBe('portrait');
     expect(config.cdn).toBe('https://cdn.test.com');
     expect(config.entry).toBe('src/main.js');
+    expect(config.assets.remoteAssetsDir).toBe('public/remote-assets');
   });
 
   it('uses portrait dimensions (750x1334) in main.js', () => {
@@ -73,24 +77,30 @@ describe('generateFullTemplate', () => {
     expect(readme).toContain('npm run build');
   });
 
-  it('BootScene transitions to MenuScene', () => {
+  it('BootScene loads assets and transitions to MenuScene', () => {
     const files = generateFullTemplate(ctx);
     const boot = files.get('src/scenes/BootScene.js')!;
     expect(boot).toContain("'MenuScene'");
+    expect(boot).toContain("'ball'");
+    expect(boot).toContain("'ball_hit'");
+    expect(boot).toContain('remote-assets');
   });
 
-  it('MenuScene has a launch button that transitions to GameScene', () => {
+  it('MenuScene uses safe area and has a launch button that transitions to GameScene', () => {
     const files = generateFullTemplate(ctx);
     const menu = files.get('src/scenes/MenuScene.js')!;
+    expect(menu).toContain('getSafeArea');
     expect(menu).toContain('Tap to Launch');
     expect(menu).toContain("'GameScene'");
   });
 
-  it('GameScene contains Breakout gameplay with physics', () => {
+  it('GameScene uses safe area, ball image, and sound effects', () => {
     const files = generateFullTemplate(ctx);
     const game = files.get('src/scenes/GameScene.js')!;
+    expect(game).toContain('getSafeArea');
     expect(game).toContain('paddle');
-    expect(game).toContain('ball');
+    expect(game).toContain("'ball'");
+    expect(game).toContain('ball_hit');
     expect(game).toContain('bricks');
     expect(game).toContain('physics.add.collider');
   });
