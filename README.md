@@ -36,7 +36,7 @@ pnpm build
 构建完成后，`phaser-wx` 命令可通过以下方式使用：
 
 ```bash
-# 在 monorepo 内使用 pnpm exec 调用
+# 在本仓库根目录下使用 pnpm exec 调用
 pnpm exec phaser-wx --help
 
 # 或者全局链接后直接使用（推荐）
@@ -44,7 +44,7 @@ cd packages/cli && npm link && cd ../..
 phaser-wx --help
 ```
 
-> **注意**：`@aspect/cli` 尚未发布到 npm，因此 `npx phaser-wx` 不可用。在 monorepo 内请使用 `pnpm exec phaser-wx`。
+> **注意**：`@aspect/cli` 尚未发布到 npm，因此 `npx phaser-wx` 不可用。未全局链接时，请在本仓库根目录下使用 `pnpm exec phaser-wx`。
 
 ### 2. 创建新项目
 
@@ -52,7 +52,7 @@ phaser-wx --help
 # 全局链接后直接使用（推荐）
 phaser-wx new my-game
 
-# 或在 monorepo 内使用 pnpm exec 调用
+# 或在本仓库根目录下使用 pnpm exec 调用
 pnpm exec phaser-wx new my-game
 ```
 
@@ -97,7 +97,7 @@ npm run build
 
 ### 4. 在已有项目中使用（不推荐）
 
-如果你已有 Phaser.js 项目（注意资源文件存放路径需要模板项目中的相同）。在 monorepo 内初始化配置：
+如果你已有 Phaser.js 项目（注意资源文件存放路径需要与模板项目中的相同）。初始化配置：
 
 ```bash
 cd your-existing-project
