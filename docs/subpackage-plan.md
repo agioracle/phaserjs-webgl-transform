@@ -2,326 +2,168 @@
 
 ## Context
 
-当前所有文件都在主包目录下（~7.9MB），超出微信主包 4MB 限制。需要：
+微信小游戏主包限制 4MB。Phaser 引擎约 3.5MB，加上游戏代码和资源很容易超限。通过分包机制将游戏拆分为多个独立加载的包：
+
 1. 引擎放入 `engine/` 分包，esbuild 压缩为 `phaser-engine.min.js`
-2. MenuScene 放入 `menu/` 分包（代码 + 专属资源）
-3. GameScene 放入 `game-play/` 分包（代码，复用 BootScene 资源）
-4. 主包只含 adapter + BootScene + 其专属资源
+2. MenuScene 放入 `menu/` 分包（代码）
+3. GameScene 放入 `game-play/` 分包（代码 + 本地资源）
+4. 主包只含 adapter + BootScene（~50KB）
 
 ## 加载流程
 
 ```
-阶段1: 原生极简进度条（game.js，纯 wx Canvas）
+阶段1: "Made with Phaser" WebGL 闪屏（game.js）
+  ├→ 渐显(1.2s) → 呼吸灯动画(持续至引擎就绪)
   └→ wx.loadSubpackage('engine') 异步下载 ~3.5MB
 
-阶段2: BootScene（Phaser 场景，用户可定制 loading 页面）
-  ├→ preload(): 加载 BootScene 本地资源 (ball.png, ball_hit.mp3)
+阶段2: BootScene（Phaser 场景）
+  ├→ preload(): 从 CDN 加载 game_logo.png (remote-assets)
   ├→ 同时 wx.loadSubpackage('menu') 异步下载 MenuScene 分包
   └→ 两者均完成后 → this.scene.start('MenuScene')
 
 阶段3: MenuScene
-  ├→ preload(): 加载 menu/ 分包中的资源 (game_logo.png, bgm.mp3)
+  ├→ preload(): 从 CDN 加载 bgm.mp3 (remote-assets)，复用 game_logo 缓存
   ├→ 同时 wx.loadSubpackage('game-play') 预加载 GameScene 分包
   └→ 点击开始 → this.scene.start('GameScene')
 
-阶段4: GameScene（复用已加载资源，无额外 preload）
+阶段4: GameScene
+  └→ preload(): 加载 ball.png、ball_hit.mp3 (从 game-play/ 分包本地资源)
 ```
 
-## 目标产物结构
+## 构建产物结构
 
 ```
-dist-wx/                                   主包 ≈ 110KB
-├── game.js                     ~800B      入口 + 原生 loading + 异步加载引擎
-├── phaser-wx-adapter.js        ~38KB
-├── game-bundle.js              ~15KB      main.js + BootScene + utils
+dist-wx/                                   主包 ≈ 50KB
+├── game.js                     ~2KB       WebGL 闪屏 + 异步加载引擎
+├── phaser-wx-adapter.js        ~40KB
+├── game-bundle.js              ~6KB       main.js + BootScene
 ├── game.json                              含 subpackages 声明
 ├── project.config.json
 ├── asset-manifest.json
-├── assets/                                BootScene 本地资源
-│   ├── images/ball.png
-│   └── audio/ball_hit.mp3
 │
 ├── engine/                                分包1: Phaser 引擎
-│   └── phaser-engine.min.js    ~3.5MB
+│   ├── phaser-engine.min.js    ~3.5MB     esbuild 压缩
+│   └── game.js                            分包入口 (stub)
 │
 ├── menu/                                  分包2: MenuScene
 │   ├── menu-scene.js           ~5KB
-│   └── assets/                            MenuScene 专属资源
-│       ├── images/game_logo.png
-│       └── audio/bgm.mp3
+│   └── game.js                            分包入口 (stub)
 │
 └── game-play/                             分包3: GameScene
-    └── game-scene.js           ~10KB
+    ├── game-scene.js           ~10KB
+    ├── game.js                            分包入口 (stub)
+    └── assets/                            该场景的本地资源（自动复制）
+        ├── images/ball.png
+        └── audio/ball_hit.mp3
 ```
 
-## 关键架构变化
+## 资源分发规则
 
-### 1. 场景注册方式改变
+| 资源路径前缀 | 处理方式 |
+|-------------|----------|
+| `remote-assets/` | 始终从 CDN 加载，不复制到任何分包 |
+| `assets/` | 构建工具自动扫描场景入口中的 `this.load.*` 调用，将引用的本地资源复制到对应分包目录，并重写代码中的路径 |
 
-**当前**: main.js 静态导入所有场景，传给 `new Phaser.Game({ scene: [...] })`
-**改后**: main.js 只导入 BootScene，其他场景通过 `this.scene.add()` 动态注册
+示例：GameScene.js 中 `this.load.image('ball', 'assets/images/ball.png')`
+- 构建时：`public/assets/images/ball.png` → `dist-wx/game-play/assets/images/ball.png`
+- 代码重写：`'assets/images/ball.png'` → `'game-play/assets/images/ball.png'`
 
-### 2. 场景需要改为独立 rollup 入口
+## 关键架构
 
-MenuScene 和 GameScene 各自是独立的 rollup 入口，输出到各自分包目录。它们 `import Phaser from 'phaser'` 时，Phaser 已被标记为 external（因为引擎已在 engine/ 分包中加载到全局）。
+### 1. game.js — WebGL 闪屏 + 引擎异步加载
 
-### 3. BootScene 负责加载 menu 分包
-
-BootScene 在 preload 资源的同时，并行 `wx.loadSubpackage('menu')`。两者都完成后才跳转 MenuScene。
-
-## 实现步骤
-
-### Step 1: 添加 esbuild 依赖
-
-```bash
-pnpm --filter @aspect/cli add esbuild
-```
-
-### Step 2: 修改 build.ts — 多入口构建 + 引擎压缩 + 分包目录
-
-**File**: `packages/cli/src/commands/build.ts`
-
-核心改动：
-1. 读取新增的 `subpackages` 配置
-2. 主入口 rollup 构建: main.js → game-bundle.js，Phaser 用 `manualChunks` 分离
-3. 场景入口 rollup 构建: 每个场景分包单独 rollup 构建，Phaser 标记为 external
-4. `bundle.generate()` + esbuild 压缩 phaser-engine chunk → `engine/phaser-engine.min.js`
-5. 场景 chunk 写入对应分包目录
-6. 拷贝场景专属资源到分包目录
-
-```ts
-// 主构建 (adapter + engine + game-bundle)
-const mainBundle = await rollup({ input: config.entry, plugins: [...] });
-const { output: mainChunks } = await mainBundle.generate({
-  dir: config.output.dir,
-  format: 'cjs',
-  manualChunks: { 'phaser-engine': ['phaser'] },
-  chunkFileNames: '[name].js',
-  entryFileNames: 'game-bundle.js',
-  intro: introCode,
-  strict: false,
-});
-
-// 写入 chunks，压缩引擎
-for (const chunk of mainChunks) {
-  if (chunk.type !== 'chunk') continue;
-  let code = chunk.code;
-  let fileName = chunk.fileName;
-  if (chunk.name === 'phaser-engine') {
-    const { transform } = await import('esbuild');
-    const minified = await transform(code, { minify: true, target: 'es2015' });
-    code = minified.code;
-    fileName = 'engine/phaser-engine.min.js';
-  }
-  const outPath = path.join(config.output.dir, fileName);
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, code, 'utf-8');
-}
-
-// 场景分包构建
-for (const sub of config.subpackages) {
-  const sceneBundle = await rollup({
-    input: sub.entry,
-    external: ['phaser'],  // Phaser 已全局加载
-    plugins: [nodeResolve({ browser: true }), commonjs(), phaserWxTransform(pluginOptions)],
-  });
-  await sceneBundle.write({
-    file: path.join(config.output.dir, sub.root, sub.outputFile),
-    format: 'cjs',
-    intro: introCode, // 同样需要 polyfill 别名
-    strict: false,
-    paths: { phaser: '../phaser-engine' }, // 不需要，external 即可
-  });
-  // 拷贝场景专属资源
-  if (sub.assets) {
-    for (const asset of sub.assets) {
-      const src = path.resolve(asset.from);
-      const dest = path.join(config.output.dir, sub.root, asset.to);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.copyFileSync(src, dest);
-    }
-  }
-}
-```
-
-### Step 3: 修改 config.ts — 新增 subpackages 配置
-
-**File**: `packages/cli/src/utils/config.ts`
-
-在 `PhaserWxConfig` 接口新增:
-```ts
-subpackages?: {
-  name: string;       // 'menu' | 'game-play'
-  root: string;       // 'menu/' | 'game-play/'
-  entry: string;      // 场景 JS 入口文件路径
-  outputFile: string; // 输出文件名 'menu-scene.js'
-  assets?: { from: string; to: string }[];  // 场景专属资源映射
-}[];
-```
-
-### Step 4: 修改 wx-project.ts — game.json 分包 + game.js 异步加载
-
-**File**: `packages/rollup-plugin/src/output/wx-project.ts`
-
-1. `WxProjectConfig` 接口新增 `subpackages` 字段
-2. **game.json** 添加 `subpackages` 声明
-3. **game.js** 两阶段加载:
-   - 阶段1: 同步加载 adapter → 原生进度条 → `wx.loadSubpackage('engine')` → require engine → require game-bundle
-   - game-bundle (BootScene) 自行处理后续分包
+game.js 是微信小游戏的入口文件，负责：
+- 创建主 canvas 并获取 **WebGL** 上下文（不能用 2D，否则 Phaser 无法复用）
+- 在离屏 2D canvas 上绘制 "Made with Phaser" 文字，作为 WebGL 纹理显示
+- 渐显动画(1.2s) → 呼吸灯动画（alpha 在 0.5~1.0 间按正弦曲线循环，周期 2s）
+- 并行 `wx.loadSubpackage('engine')` 下载引擎分包
+- 引擎就绪后：停止动画 → 清理 WebGL 资源 → require adapter → require engine → require game-bundle
 
 ```js
-// game.js
-GameGlobal.__adapterExports = require('./phaser-wx-adapter.js');
-if (typeof GameGlobal.__wxCustomAdapter !== 'undefined') {
-  require('./phaser-wx-custom-adapter.js');
+// 核心流程
+var _canvas = wx.createCanvas();
+GameGlobal.__wxCanvas = _canvas;       // adapter 复用此 canvas
+var _gl = _canvas.getContext('webgl');  // 必须用 WebGL，不能用 2D
+
+// ... WebGL shader + texture setup (off-screen 2D canvas for text) ...
+
+function _boot() {
+  if (!_engineReady) return;
+  cancelAnimationFrame(_splashRafId);
+  // 清理 WebGL 资源
+  _gl.deleteTexture(_tex);
+  _gl.deleteBuffer(_buf);
+  _gl.deleteProgram(_prog);
+  // 加载链
+  GameGlobal.__adapterExports = require('./phaser-wx-adapter.js');
+  require('engine/phaser-engine.min.js');
+  require('./game-bundle.js');
 }
 
-// 原生 loading（等待引擎分包下载）
-var _info = wx.getSystemInfoSync();
-var _canvas = GameGlobal.__adapterExports.canvas || wx.createCanvas();
-var _ctx = _canvas.getContext('2d');
-var _w = _canvas.width || _info.screenWidth;
-var _h = _canvas.height || _info.screenHeight;
-function _drawProgress(p) {
-  _ctx.fillStyle = '#000000';
-  _ctx.fillRect(0, 0, _w, _h);
-  var bW = Math.min(_w * 0.6, 400), bH = 8;
-  var bX = (_w - bW) / 2, bY = _h / 2;
-  _ctx.fillStyle = '#333333';
-  _ctx.fillRect(bX, bY, bW, bH);
-  _ctx.fillStyle = '#ffffff';
-  _ctx.fillRect(bX, bY, bW * Math.min(p, 1), bH);
-}
-_drawProgress(0);
-
-var _task = wx.loadSubpackage({
+wx.loadSubpackage({
   name: 'engine',
-  success: function() {
-    require('engine/phaser-engine.min.js');
-    require('./game-bundle.js');
-  },
-  fail: function(err) { console.error('Engine subpackage failed:', err); }
+  success: function() { _engineReady = true; _boot(); }
 });
-_task.onProgressUpdate(function(res) { _drawProgress(res.progress / 100); });
 ```
 
-### Step 5: 修改 example 游戏代码
+> **重要**：微信中 canvas 的 context 类型一旦确定不能切换。如果闪屏用 `getContext('2d')`，Phaser 后续 `getContext('webgl')` 会返回 null。
 
-#### main.js — 只注册 BootScene
+### 2. 场景注册方式
+
+main.js 只静态导入 BootScene，其他场景通过分包加载后动态注册：
 
 ```js
-import Phaser from 'phaser';
+// main.js
 import { BootScene } from './scenes/BootScene.js';
-
 const config = {
-  type: Phaser.WEBGL,
-  width: 750, height: 1334,
-  backgroundColor: '#1a1a2e',
-  physics: { default: 'arcade', arcade: { debug: false, checkCollision: { up: true, down: true, left: true, right: true } } },
-  scene: [BootScene],  // 只注册 BootScene，其他场景动态加载
+  scene: [BootScene], // 只注册 BootScene
 };
-
 const game = new Phaser.Game(config);
 ```
 
-#### BootScene.js — 加载自身资源 + 并行加载 menu 分包
+### 3. 场景中加载下一个分包
+
+每个场景在 preload 中并行加载下一个场景的分包：
 
 ```js
-import Phaser from 'phaser';
-
-export class BootScene extends Phaser.Scene {
-  constructor() { super({ key: 'BootScene' }); }
-
-  preload() {
-    // 进度条 UI...（保持现有代码）
-
-    // 只加载 BootScene 专属资源
-    this.load.image('ball', 'assets/images/ball.png');
-    this.load.audio('ball_hit', 'assets/audio/ball_hit.mp3');
-
-    // 并行加载 menu 分包
-    this._menuReady = false;
-    wx.loadSubpackage({
-      name: 'menu',
-      success: () => {
-        // 注册 MenuScene
-        const { MenuScene } = require('menu/menu-scene.js');
-        this.scene.add('MenuScene', MenuScene, false);
-        this._menuReady = true;
-      }
-    });
-  }
-
-  create() {
-    const proceed = () => {
-      if (this._menuReady) {
-        this.scene.start('MenuScene');
-      } else {
-        this.time.delayedCall(100, proceed);
-      }
-    };
-    // 保留原有的进度条动画，完成后跳转
-    this.tweens.add({
-      targets: this.fillBar,
-      width: this.barWidth,
-      duration: 1000,
-      ease: 'Sine.easeInOut',
-      onComplete: () => {
-        this.loadingText.setText('Complete!');
-        this.time.delayedCall(200, proceed);
-      },
-    });
-  }
-}
-```
-
-#### MenuScene.js — 加载自身资源 + 预加载 game-play 分包
-
-MenuScene 新增 `preload()` 方法，加载 menu/ 分包中的资源:
-```js
-preload() {
-  this.load.image('game_logo', 'menu/assets/images/game_logo.png');
-  this.load.audio('bgm', 'menu/assets/audio/bgm.mp3');
-
-  // 预加载 GameScene 分包
-  this._gameReady = false;
+// BootScene.js — preload()
+this._menuReady = false;
+if (typeof wx !== 'undefined' && wx.loadSubpackage) {
   wx.loadSubpackage({
-    name: 'game-play',
+    name: 'menu',
     success: () => {
-      const { GameScene } = require('game-play/game-scene.js');
-      this.scene.add('GameScene', GameScene, false);
-      this._gameReady = true;
-    }
+      const { MenuScene } = require('menu/menu-scene.js');
+      this.scene.add('MenuScene', MenuScene, false);
+      this._menuReady = true;
+    },
   });
+} else {
+  this._menuReady = true; // 非微信环境 fallback
 }
 ```
 
-#### GameScene.js — 无改动（复用 ball、ball_hit 缓存）
+### 4. 跨分包 Phaser 访问
 
-### Step 6: 更新 example/phaser-wx.config.json
+引擎分包中的 Phaser 通过全局变量共享：
+- game-bundle.js 构建后自动追加：`GameGlobal.Phaser = Phaser`
+- 场景分包中 `require('phaser')` 被替换为 `GameGlobal.Phaser`
+
+### 5. 跨分包 require 路径修复
+
+微信中 `require()` 相对于当前文件解析。如果 menu-scene.js 中引用 `require('game-play/game-scene.js')`，实际解析为 `menu/game-play/game-scene.js`（错误）。构建工具自动重写为 `require('../game-play/game-scene.js')`。
+
+## 配置
+
+`phaser-wx.config.json` 中的 `subpackages` 字段：
 
 ```json
 {
-  "appid": "wx4a4d257bc28799a0",
-  "orientation": "portrait",
-  "cdn": "https://cdn.example.com",
-  "entry": "src/main.js",
-  "assets": {
-    "dir": "public/assets",
-    "remoteAssetsDir": "public/remote-assets",
-    "remoteSizeThreshold": 204800
-  },
-  "output": { "dir": "dist-wx" },
   "subpackages": [
     {
       "name": "menu",
       "root": "menu/",
       "entry": "src/scenes/MenuScene.js",
-      "outputFile": "menu-scene.js",
-      "assets": [
-        { "from": "public/remote-assets/images/game_logo.png", "to": "assets/images/game_logo.png" },
-        { "from": "public/remote-assets/audio/bgm.mp3", "to": "assets/audio/bgm.mp3" }
-      ]
+      "outputFile": "menu-scene.js"
     },
     {
       "name": "game-play",
@@ -333,42 +175,78 @@ preload() {
 }
 ```
 
-### Step 7: 重新 build rollup-plugin
+| 字段 | 说明 |
+|------|------|
+| `name` | 分包名称，用于 `wx.loadSubpackage({ name })` |
+| `root` | 分包目录，须以 `/` 结尾 |
+| `entry` | 场景源码入口文件路径 |
+| `outputFile` | 构建后的文件名 |
 
-```bash
-pnpm --filter @aspect/rollup-plugin build
+> 不需要手动配置 `assets` 字段，构建工具自动扫描场景入口文件中的 `this.load.*` 调用来发现和复制资源。
+
+## 构建流程
+
+### 主构建（game-bundle.js + phaser-engine）
+
+```ts
+const mainBundle = await rollup({ input: config.entry, plugins: [...] });
+const { output: mainChunks } = await mainBundle.generate({
+  dir: config.output.dir,
+  format: 'cjs',
+  manualChunks: { 'phaser-engine': ['phaser'] },
+  chunkFileNames: '[name].js',
+  entryFileNames: 'game-bundle.js',
+  intro: introCode,  // polyfill 别名 (window, document 等)
+  strict: false,
+});
+
+// 后处理
+for (const chunk of mainChunks) {
+  if (chunk.name === 'phaser-engine') {
+    // esbuild 压缩 → engine/phaser-engine.min.js
+    const minified = await esbuildTransform(code, { minify: true, target: 'es2015' });
+  } else if (chunk.isEntry) {
+    // 重写 require 路径: require('./phaser-engine.js') → require('engine/phaser-engine.min.js')
+    // 追加: GameGlobal.Phaser = Phaser
+  }
+}
 ```
 
-### Step 8: 更新测试
+### 场景分包构建
 
-**File**: `packages/rollup-plugin/__tests__/output/wx-project.test.ts`
-- game.json 检查 `subpackages` 含 engine/menu/game-play
-- game.js 检查 `wx.loadSubpackage` 和异步加载模式
+```ts
+for (const sub of config.subpackages) {
+  const sceneBundle = await rollup({
+    input: sub.entry,
+    external: ['phaser'],  // Phaser 已全局加载
+    plugins: [nodeResolve({ browser: true }), commonjs()],
+  });
 
-**File**: `packages/cli/__tests__/integration/full-pipeline.test.ts`
-- 验证 `engine/phaser-engine.min.js` 存在
-- 验证 `game-bundle.js` 不含 Phaser 引擎代码
-- game.js 检查异步加载模式
-- game.json 检查 subpackages
-
-### Step 9: 运行测试
-
-```bash
-pnpm --filter @aspect/rollup-plugin test
-pnpm --filter @aspect/cli test
+  // generate() + 后处理
+  // 1. require('phaser') → GameGlobal.Phaser
+  // 2. 跨分包 require 路径加 ../ 前缀
+  // 3. scanAssets() 扫描资源引用 → 复制到分包目录 → 重写路径
+}
 ```
 
-## Key Files
+## 已知局限
 
-| File | Action |
-|------|--------|
-| `packages/cli/package.json` | 添加 esbuild |
-| `packages/cli/src/commands/build.ts` | 多入口构建 + esbuild 压缩 + 分包目录 |
-| `packages/cli/src/utils/config.ts` | 新增 subpackages 配置 |
-| `packages/rollup-plugin/src/output/wx-project.ts` | game.json 分包声明 + game.js 异步加载 |
+1. **`scanAssets` 只扫描入口文件表层** — 如果资源加载写在被 import 的工具模块中，不会被发现
+2. **场景中的分包加载代码需要用户手写** — 构建工具不会自动注入 `wx.loadSubpackage()` / `require()` / `scene.add()` 代码
+3. **跨分包 require 路径修复假设扁平目录结构** — 分包 root 不支持嵌套路径（如 `scenes/menu/`）
+4. **共享工具模块会重复打包** — 每个场景分包独立构建，import 的工具模块在每个分包中各有一份副本
+
+## 涉及文件
+
+| 文件 | 职责 |
+|------|------|
+| `packages/rollup-plugin/src/output/wx-project.ts` | 生成 game.js (WebGL 闪屏) + game.json (分包声明) + 分包 game.js stub |
+| `packages/cli/src/commands/build.ts` | 多入口构建 + esbuild 压缩 + 分包目录 + 资源扫描复制 + 路径重写 |
+| `packages/cli/src/utils/config.ts` | subpackages 配置解析 |
+| `packages/cli/tsup.config.ts` | esbuild 加入 external 列表 |
+| `packages/rollup-plugin/src/asset-pipeline/scanner.ts` | 扫描 `this.load.*` 调用发现资源引用 |
 | `example/src/main.js` | 只注册 BootScene |
-| `example/src/scenes/BootScene.js` | 只加载自身资源 + 加载 menu 分包 |
-| `example/src/scenes/MenuScene.js` | 新增 preload + 预加载 game-play 分包 |
-| `example/phaser-wx.config.json` | 新增 subpackages 配置 |
-| `packages/rollup-plugin/__tests__/output/wx-project.test.ts` | 更新测试 |
-| `packages/cli/__tests__/integration/full-pipeline.test.ts` | 更新测试 |
+| `example/src/scenes/BootScene.js` | 加载 game_logo (CDN) + 并行下载 menu 分包 |
+| `example/src/scenes/MenuScene.js` | 加载 bgm (CDN) + 预下载 game-play 分包 |
+| `example/src/scenes/GameScene.js` | 加载 ball.png、ball_hit.mp3 (分包本地资源) |
+| `example/phaser-wx.config.json` | subpackages 配置示例 |
