@@ -166,9 +166,127 @@ phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
     "version": 1,                    // WebGL 版本
     "antialias": false,              // 抗锯齿
     "preserveDrawingBuffer": false   // 保留绘制缓冲区
-  }
+  },
+
+  // [可选] 场景分包配置，详见"分包机制"章节
+  "subpackages": [
+    {
+      "name": "menu",               // 分包名称
+      "root": "menu/",              // 分包目录（须以 / 结尾）
+      "entry": "src/scenes/MenuScene.js",  // 场景源码入口
+      "outputFile": "menu-scene.js"        // 构建产物文件名
+    }
+  ]
 }
 ```
+
+## 分包机制
+
+微信小游戏主包限制 4MB。Phaser 引擎本身约 3.5MB，加上游戏代码和资源很容易超限。分包机制将游戏拆分为多个独立加载的包：
+
+### 构建产物结构
+
+```
+dist-wx/                              主包 ≈ 50KB
+├── game.js                           启动入口 + "Made with Phaser" 闪屏
+├── phaser-wx-adapter.js              适配器
+├── game-bundle.js                    主入口 + BootScene
+├── game.json                         含 subpackages 声明
+├── project.config.json
+├── asset-manifest.json
+│
+├── engine/                           分包: Phaser 引擎 ≈ 3.5MB
+│   └── phaser-engine.min.js
+│
+├── menu/                             分包: MenuScene
+│   ├── menu-scene.js
+│   └── assets/                       该场景的本地资源（自动复制）
+│
+└── game-play/                        分包: GameScene
+    ├── game-scene.js
+    └── assets/                       该场景的本地资源（自动复制）
+```
+
+### 启动流程
+
+1. **闪屏阶段** — `game.js` 在 WebGL canvas 上渲染 "Made with Phaser" 文字（渐显 + 呼吸灯动画），同时异步下载 engine 分包
+2. **BootScene** — 引擎加载完毕后启动 Phaser，BootScene 加载自身资源并并行下载下一个场景分包
+3. **后续场景** — 每个场景在前一个场景中预加载，通过 `wx.loadSubpackage()` 下载后动态注册
+
+### 配置
+
+在 `phaser-wx.config.json` 中添加 `subpackages` 数组：
+
+```json
+{
+  "subpackages": [
+    {
+      "name": "menu",
+      "root": "menu/",
+      "entry": "src/scenes/MenuScene.js",
+      "outputFile": "menu-scene.js"
+    },
+    {
+      "name": "game-play",
+      "root": "game-play/",
+      "entry": "src/scenes/GameScene.js",
+      "outputFile": "game-scene.js"
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `name` | 分包名称，用于 `wx.loadSubpackage({ name })` |
+| `root` | 分包目录，须以 `/` 结尾 |
+| `entry` | 场景源码入口文件路径 |
+| `outputFile` | 构建后的文件名 |
+
+### 游戏代码适配
+
+#### 1. 主入口只注册首屏场景
+
+```js
+// src/main.js
+import Phaser from 'phaser';
+import { BootScene } from './scenes/BootScene.js';
+
+const config = {
+  // ...
+  scene: [BootScene], // 其他场景从分包动态加载
+};
+const game = new Phaser.Game(config);
+```
+
+#### 2. 场景中加载下一个分包并动态注册
+
+```js
+// src/scenes/BootScene.js — preload()
+this._menuReady = false;
+wx.loadSubpackage({
+  name: 'menu',
+  success: () => {
+    const { MenuScene } = require('menu/menu-scene.js');
+    this.scene.add('MenuScene', MenuScene, false);
+    this._menuReady = true;
+  }
+});
+
+// create() 中等待分包就绪后跳转
+if (this._menuReady) {
+  this.scene.start('MenuScene');
+}
+```
+
+### 资源自动分发
+
+构建工具会自动扫描每个场景源码中的 `this.load.*` 调用：
+
+- **`assets/` 路径的资源**（本地资源）：自动复制到对应分包目录，并重写代码中的资源路径。例如场景代码中写 `this.load.image('ball', 'assets/images/ball.png')`，构建后该文件会被复制到 `game-play/assets/images/ball.png`，代码中的路径也会自动更新
+- **`remote-assets/` 路径的资源**（远程资源）：始终从 CDN 加载，不会复制到任何分包中
+
+> **提示**：不需要在配置文件中手动声明每个分包的资源列表，构建工具会自动处理。
 
 ## 架构
 
