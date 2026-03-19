@@ -79,10 +79,10 @@ export function loadConfig(configPath?: string): PhaserWxConfig {
     );
   }
 
-  if (!parsed.cdn || typeof parsed.cdn !== 'string') {
-    throw new Error('Config validation error: "cdn" is required and must be a string.');
+  if (parsed.cdn !== undefined && parsed.cdn !== '' && typeof parsed.cdn !== 'string') {
+    throw new Error('Config validation error: "cdn" must be a string.');
   }
-  if (!isValidUrl(parsed.cdn)) {
+  if (parsed.cdn && typeof parsed.cdn === 'string' && !isValidUrl(parsed.cdn)) {
     throw new Error(
       'Config validation error: "cdn" must be a valid URL (starting with http:// or https://).'
     );
@@ -103,7 +103,7 @@ export function loadConfig(configPath?: string): PhaserWxConfig {
   return {
     appid: parsed.appid,
     orientation: parsed.orientation as 'portrait' | 'landscape',
-    cdn: parsed.cdn,
+    cdn: typeof parsed.cdn === 'string' ? parsed.cdn : '',
     entry: parsed.entry,
     assets: {
       dir: typeof assets.dir === 'string' ? assets.dir : '',

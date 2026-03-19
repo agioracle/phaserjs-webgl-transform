@@ -140,12 +140,22 @@ describe('loadConfig', () => {
     expect(() => loadConfig()).toThrow(/orientation/i);
   });
 
-  it('throws if cdn is missing', () => {
+  it('allows missing cdn and defaults to empty string', () => {
     const { cdn, ...noCdn } = VALID_CONFIG;
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(noCdn));
 
-    expect(() => loadConfig()).toThrow(/cdn/i);
+    const result = loadConfig();
+    expect(result.cdn).toBe('');
+  });
+
+  it('allows empty string cdn', () => {
+    const emptyCdn = { ...VALID_CONFIG, cdn: '' };
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(emptyCdn));
+
+    const result = loadConfig();
+    expect(result.cdn).toBe('');
   });
 
   it('throws if cdn is not a valid URL', () => {
