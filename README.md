@@ -39,8 +39,8 @@ pnpm build
 # 在 monorepo 内使用 pnpm exec 调用
 pnpm exec phaser-wx --help
 
-# 或者全局链接后直接使用
-pnpm link packages/cli --global
+# 或者全局链接后直接使用（推荐）
+cd packages/cli && npm link && cd ../..
 phaser-wx --help
 ```
 
@@ -130,7 +130,7 @@ pnpm exec phaser-wx build
 pnpm exec phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
 ```
 
-> **提示**：如果已全局安装 `@aspect/cli`（通过 `npm install -g @aspect/cli`），可省略 `pnpm exec` 前缀。在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置，直接使用即可。
+> **提示**：如果已全局链接 `@aspect/cli`（通过 `cd packages/cli && npm link`），可省略 `pnpm exec` 前缀。在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置，直接使用即可。
 
 ## 配置文件
 
@@ -354,11 +354,11 @@ pnpm clean
 ```js
 // BootScene.js — preload 中加载
 
-// 本地资源（从 public/assets/ 加载）
+// 本地资源（从 assets/ 加载）
 this.load.image('logo', 'assets/images/logo.png');
 this.load.audio('hit', 'assets/audio/hit.mp3');
 
-// 远程资源（从 public/remote-assets/ 加载，运行时会自动从 CDN 下载）
+// 远程资源（运行时会自动从 CDN 下载）
 this.load.audio('bgm', 'remote-assets/audio/bgm.mp3');
 ```
 
