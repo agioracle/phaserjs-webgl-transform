@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "npx serve public",
-    "build": "pnpm exec phaser-wx build"
+    "build": "phaser-wx build"
   },
   "dependencies": {
     "phaser": "^3.80.0"
