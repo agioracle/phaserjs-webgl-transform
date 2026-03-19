@@ -88,15 +88,6 @@ npm run build
 
 构建产物输出到 `dist-wx/`，可直接在微信开发者工具中打开。
 
-### 4. 在已有项目中使用（不推荐）
-
-如果你已有 Phaser.js 项目（注意资源文件存放路径需要与模板项目中的相同）。初始化配置：
-
-```bash
-cd your-existing-project
-phaser-wx init
-phaser-wx build
-```
 
 ## CLI 命令
 
@@ -109,13 +100,6 @@ phaser-wx new my-game
 phaser-wx new my-game --template full   # 等效，full 为默认模板
 ```
 
-### `phaser-wx init`
-
-在当前目录生成 `phaser-wx.config.json` 配置文件。适用于已有 Phaser.js 项目。
-
-```bash
-phaser-wx init
-```
 
 ### `phaser-wx build`
 

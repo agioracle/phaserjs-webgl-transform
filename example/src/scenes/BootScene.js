@@ -68,7 +68,7 @@ export class BootScene extends Phaser.Scene {
 
     // Show logo above progress bar
     const { width } = this.cameras.main;
-    this.add.image(width / 2, this.cameras.main.height / 2 - 150, 'game_logo').setOrigin(0.5, 0.5);
+    this.add.image(width / 2, this.cameras.main.height / 2 - 180, 'game_logo').setOrigin(0.5, 0.5);
 
     // Simulate a 1-second loading animation so the progress bar is visible
     this.tweens.add({
