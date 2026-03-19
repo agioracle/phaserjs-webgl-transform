@@ -26,6 +26,7 @@ const FULL_CONFIG_WITH_DEFAULTS: PhaserWxConfig = {
   entry: 'src/main.js',
   assets: {
     dir: 'public/assets',
+    remoteAssetsDir: '',
     remoteSizeThreshold: 204800,
     cacheMaxSize: 52428800,
     downloadRetries: 3,

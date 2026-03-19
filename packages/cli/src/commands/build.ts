@@ -86,6 +86,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     appid: config.appid,
     cdnBase: config.cdn,
     sizeThreshold: config.assets.remoteSizeThreshold,
+    remoteAssetsDir: config.assets.remoteAssetsDir || '',
   };
 
   // Bundle the adapter into a single file.
@@ -158,6 +159,57 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     introLines.push('var cancelAnimationFrame = __adapter_exports.window.cancelAnimationFrame;');
     introLines.push('var HTMLElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLElement || function HTMLElement() {};');
     introLines.push('var HTMLCanvasElement = (typeof GameGlobal !== "undefined" ? GameGlobal : globalThis).HTMLCanvasElement || function HTMLCanvasElement() {};');
+
+    // --- Remote asset loader initializer ---
+    // Called by injected code right before `new Phaser.Game(config)`.
+    // At that point Phaser module has been evaluated, so Phaser.Loader exists.
+    //
+    // Strategy: patch LoaderPlugin.prototype.start to rewrite remote asset URLs
+    // to CDN full URLs BEFORE any File.load() is called.
+    //
+    // How Phaser resolves URLs:
+    //   file.url  = user-supplied path (e.g. 'remote-assets/images/logo.png')
+    //   file.src  = GetURL(file, baseURL) — if file.url starts with http/https,
+    //              returns file.url as-is; otherwise prepends baseURL.
+    //   ImageFile:  Image.src = this.src
+    //   AudioFile:  Audio.src = this.url  (HTML5AudioFile uses url directly)
+    //
+    // So we rewrite file.url to the full CDN URL. GetURL will see it starts
+    // with https:// and return it unchanged. Both image and audio paths work.
+    introLines.push('');
+    introLines.push('// --- Remote asset loader ---');
+    introLines.push('var __remoteAssetLoaderInitialized = false;');
+    introLines.push('function __initRemoteAssetLoader(Phaser) {');
+    introLines.push('  if (__remoteAssetLoaderInitialized) return;');
+    introLines.push('  __remoteAssetLoaderInitialized = true;');
+    introLines.push('  try {');
+    introLines.push('    var _fs = wx.getFileSystemManager();');
+    introLines.push('    var manifestStr = _fs.readFileSync("asset-manifest.json", "utf-8");');
+    introLines.push('    var manifest = JSON.parse(manifestStr);');
+    introLines.push('    if (!manifest || !manifest.assets) return;');
+    introLines.push('    var hasRemote = false;');
+    introLines.push('    for (var k in manifest.assets) { if (manifest.assets[k].remote) { hasRemote = true; break; } }');
+    introLines.push('    if (!hasRemote) return;');
+    introLines.push('    var _cdnBase = manifest.cdnBase || "";');
+    introLines.push('    if (_cdnBase && _cdnBase[_cdnBase.length - 1] !== "/") _cdnBase += "/";');
+    introLines.push('    var _origStart = Phaser.Loader.LoaderPlugin.prototype.start;');
+    introLines.push('    Phaser.Loader.LoaderPlugin.prototype.start = function() {');
+    introLines.push('      var entries = this.list && this.list.entries;');
+    introLines.push('      if (entries) {');
+    introLines.push('        for (var i = 0; i < entries.length; i++) {');
+    introLines.push('          var file = entries[i];');
+    introLines.push('          var fileUrl = file.url || "";');
+    introLines.push('          var entry = manifest.assets[fileUrl];');
+    introLines.push('          if (entry && entry.remote) {');
+    introLines.push('            file.url = _cdnBase + fileUrl;');
+    introLines.push('          }');
+    introLines.push('        }');
+    introLines.push('      }');
+    introLines.push('      return _origStart.apply(this, arguments);');
+    introLines.push('    };');
+    introLines.push('  } catch(e) { /* manifest not found or parse error — no remote assets */ }');
+    introLines.push('}');
+    introLines.push('// --- end remote asset loader ---');
   } else {
     // Fallback: alias from GameGlobal (less reliable)
     introLines.push('var _g = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;');
@@ -171,6 +223,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       introLines.push(`var ${name} = _g.${name};`);
     }
     introLines.push('var self = _g.window || _g;');
+    // Noop for fallback path — remote assets won't work without adapter
+    introLines.push('function __initRemoteAssetLoader() {}');
   }
   introLines.push('');
   const introCode = introLines.join('\n');
@@ -199,9 +253,19 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   const localFiles = walkDir(config.output.dir, ['remote']);
   const totalSize = localFiles.reduce((sum, f) => sum + f.size, 0);
 
-  // Count remote assets
-  const remoteDir = path.join(config.output.dir, 'remote');
-  const remoteFiles = walkDir(remoteDir);
+  // Count remote assets from manifest
+  let remoteAssetCount = 0;
+  const manifestPath = path.join(config.output.dir, 'asset-manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      for (const entry of Object.values(manifest.assets || {})) {
+        if ((entry as any).remote) remoteAssetCount++;
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   if (totalSize > SIZE_LIMIT_ERROR) {
     console.error(`\n❌ Error: Package size ${formatSize(totalSize)} exceeds 20MB limit!`);
@@ -218,6 +282,16 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     console.log(`\n✅ Build complete!`);
     console.log(`  Total size: ${formatSize(totalSize)}`);
     console.log(`  Local files: ${localFiles.length}`);
-    console.log(`  Remote assets: ${remoteFiles.length}`);
+    console.log(`  Remote assets: ${remoteAssetCount}`);
+  }
+
+  // Remind user to upload remote assets to CDN
+  if (remoteAssetCount > 0) {
+    const remoteAssetsDir = config.assets.remoteAssetsDir;
+    const remoteAssetsDirName = remoteAssetsDir ? path.basename(remoteAssetsDir) : 'remote';
+    console.log(`\n📦 ${remoteAssetCount} remote asset(s) need to be uploaded to CDN.`);
+    console.log(`  Upload the contents of "${remoteAssetsDir || 'remote assets directory'}" to:`);
+    console.log(`  ${config.cdn}/${remoteAssetsDirName}/`);
+    console.log(`  (Runtime will load them from CDN via asset-manifest.json)`);
   }
 }

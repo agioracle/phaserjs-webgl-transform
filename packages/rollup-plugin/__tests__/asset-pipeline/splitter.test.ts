@@ -131,4 +131,105 @@ describe('splitAssets', () => {
     expect(result.local).toHaveLength(1);
     expect(result.local[0].path).toBe('exists.png');
   });
+
+  describe('remoteAssetsDir', () => {
+    let remoteAssetsDir: string;
+
+    beforeEach(() => {
+      remoteAssetsDir = createTempDir();
+    });
+
+    afterEach(() => {
+      fs.rmSync(remoteAssetsDir, { recursive: true, force: true });
+    });
+
+    it('forces files under remoteAssetsDir to remote regardless of size', () => {
+      // Small file in remoteAssetsDir (would be local by size threshold)
+      writeFixture(remoteAssetsDir, 'audio/bgm.mp3', 'small-audio');
+
+      // In real usage, loader path includes the remote-assets dir prefix
+      // e.g. this.load.audio('bgm', 'remote-assets/audio/bgm.mp3')
+      const remoteAssetsDirName = path.basename(remoteAssetsDir);
+      const assetRefs: AssetReference[] = [
+        { path: `${remoteAssetsDirName}/audio/bgm.mp3`, type: 'audio', loaderMethod: 'audio' },
+      ];
+
+      // The splitter resolves paths from dirname(remoteAssetsDir) (the web root)
+      const result = splitAssets(assetRefs, assetsDir, outputDir, remoteDir, 10000, remoteAssetsDir);
+
+      expect(result.remote).toHaveLength(1);
+      expect(result.local).toHaveLength(0);
+      expect(result.remote[0].path).toBe(`${remoteAssetsDirName}/audio/bgm.mp3`);
+      // Remote-assets are also copied to outputDir for local DevTools preview
+      expect(fs.existsSync(path.join(outputDir, `${remoteAssetsDirName}/audio/bgm.mp3`))).toBe(true);
+    });
+
+    it('scans remoteAssetsDir for files not referenced by loader calls', () => {
+      // File exists in remoteAssetsDir but not in assetRefs
+      writeFixture(remoteAssetsDir, 'images/bg.png', 'background-data');
+      writeFixture(remoteAssetsDir, 'audio/music.mp3', 'music-data');
+      // .gitkeep should be skipped
+      writeFixture(remoteAssetsDir, '.gitkeep', '');
+
+      const assetRefs: AssetReference[] = [];
+
+      // The parent of remoteAssetsDir is the "web root"
+      const webRoot = path.dirname(remoteAssetsDir);
+      const remoteAssetsDirName = path.basename(remoteAssetsDir);
+
+      const result = splitAssets(assetRefs, assetsDir, outputDir, remoteDir, 10000, remoteAssetsDir);
+
+      expect(result.remote).toHaveLength(2);
+      expect(result.local).toHaveLength(0);
+
+      const remotePaths = result.remote.map(e => e.path).sort();
+      expect(remotePaths).toContain(`${remoteAssetsDirName}/audio/music.mp3`);
+      expect(remotePaths).toContain(`${remoteAssetsDirName}/images/bg.png`);
+    });
+
+    it('infers asset type from file extension for auto-scanned remote files', () => {
+      writeFixture(remoteAssetsDir, 'images/photo.jpg', 'jpeg-data');
+      writeFixture(remoteAssetsDir, 'audio/sfx.wav', 'wav-data');
+
+      const result = splitAssets([], assetsDir, outputDir, remoteDir, 10000, remoteAssetsDir);
+
+      const imageEntry = result.remote.find(e => e.path.includes('photo.jpg'));
+      const audioEntry = result.remote.find(e => e.path.includes('sfx.wav'));
+
+      expect(imageEntry?.type).toBe('image');
+      expect(audioEntry?.type).toBe('audio');
+    });
+
+    it('does not duplicate files referenced both by loader and auto-scan', () => {
+      writeFixture(remoteAssetsDir, 'audio/bgm.mp3', 'bgm-data');
+
+      const remoteAssetsDirName = path.basename(remoteAssetsDir);
+      const assetRefs: AssetReference[] = [
+        { path: `${remoteAssetsDirName}/audio/bgm.mp3`, type: 'audio', loaderMethod: 'audio' },
+      ];
+
+      const result = splitAssets(assetRefs, assetsDir, outputDir, remoteDir, 10000, remoteAssetsDir);
+
+      // Should appear only once (from the loader ref resolution, not duplicated by auto-scan)
+      const bgmEntries = result.remote.filter(e => e.path.includes('bgm.mp3'));
+      expect(bgmEntries).toHaveLength(1);
+    });
+
+    it('mixes local assets and remote-dir assets correctly', () => {
+      writeFixture(assetsDir, 'images/logo.png', 'logo-data');
+      writeFixture(remoteAssetsDir, 'audio/bgm.mp3', 'bgm-data');
+
+      const assetRefs: AssetReference[] = [
+        { path: 'images/logo.png', type: 'image', loaderMethod: 'image' },
+      ];
+
+      const result = splitAssets(assetRefs, assetsDir, outputDir, remoteDir, 10000, remoteAssetsDir);
+
+      expect(result.local).toHaveLength(1);
+      expect(result.local[0].path).toBe('images/logo.png');
+
+      expect(result.remote).toHaveLength(1);
+      expect(result.remote[0].path).toContain('bgm.mp3');
+    });
+  });
 });

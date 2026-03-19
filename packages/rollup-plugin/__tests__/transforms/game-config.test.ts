@@ -21,6 +21,11 @@ const game = new Phaser.Game({
     expect(result.code).toContain('Phaser.Scale.NO_CENTER');
     expect(result.code).toContain('imageLoadType: "HTMLImageElement"');
     expect(result.code).toContain('width: 800');
+    // Verify __initRemoteAssetLoader is injected before new Phaser.Game
+    expect(result.code).toContain('__initRemoteAssetLoader(Phaser)');
+    const initIdx = result.code.indexOf('__initRemoteAssetLoader(Phaser)');
+    const newGameIdx = result.code.indexOf('new Phaser.Game');
+    expect(initIdx).toBeLessThan(newGameIdx);
   });
 
   it('overrides type: Phaser.CANVAS to Phaser.WEBGL and emits warning', () => {

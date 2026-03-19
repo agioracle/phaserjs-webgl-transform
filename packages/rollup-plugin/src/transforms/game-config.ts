@@ -267,37 +267,64 @@ export function transformGameConfig(code: string): TransformResult {
         mergeObjectProperties(configObj, warnings);
         path.node.arguments = [configObj];
         modified = true;
-        return;
-      }
+      } else {
+        const firstArg = args[0];
 
-      const firstArg = args[0];
+        if (t.isObjectExpression(firstArg)) {
+          mergeObjectProperties(firstArg, warnings);
+          modified = true;
+        } else if (t.isIdentifier(firstArg)) {
+          const varName = firstArg.name;
+          const binding = path.scope.getBinding(varName);
 
-      if (t.isObjectExpression(firstArg)) {
-        mergeObjectProperties(firstArg, warnings);
-        modified = true;
-      } else if (t.isIdentifier(firstArg)) {
-        const varName = firstArg.name;
-        const binding = path.scope.getBinding(varName);
-
-        if (binding && binding.path.isVariableDeclarator()) {
-          const init = binding.path.node.init;
-          if (t.isObjectExpression(init)) {
-            mergeObjectProperties(init, warnings);
-            modified = true;
+          if (binding && binding.path.isVariableDeclarator()) {
+            const init = binding.path.node.init;
+            if (t.isObjectExpression(init)) {
+              mergeObjectProperties(init, warnings);
+              modified = true;
+            } else {
+              warnings.push(
+                `Could not resolve config variable "${varName}": initializer is not an object literal.`
+              );
+            }
           } else {
             warnings.push(
-              `Could not resolve config variable "${varName}": initializer is not an object literal.`
+              `Could not resolve config variable "${varName}".`
             );
           }
         } else {
           warnings.push(
-            `Could not resolve config variable "${varName}".`
+            'Could not resolve config argument: not an object literal or identifier.'
           );
         }
-      } else {
-        warnings.push(
-          'Could not resolve config argument: not an object literal or identifier.'
+      }
+
+      // Insert __initRemoteAssetLoader(Phaser) call before new Phaser.Game(...)
+      // At this point in the bundle, Phaser module has been evaluated so
+      // Phaser.Loader.File.prototype is available for monkey-patching.
+      const parentPath = path.parentPath;
+      if (parentPath && parentPath.isExpressionStatement()) {
+        const initCall = t.expressionStatement(
+          t.callExpression(
+            t.identifier('__initRemoteAssetLoader'),
+            [t.identifier('Phaser')]
+          )
         );
+        parentPath.insertBefore(initCall);
+        modified = true;
+      } else if (parentPath && parentPath.isVariableDeclarator()) {
+        // e.g. const game = new Phaser.Game(config);
+        const declPath = parentPath.parentPath;
+        if (declPath && declPath.isVariableDeclaration()) {
+          const initCall = t.expressionStatement(
+            t.callExpression(
+              t.identifier('__initRemoteAssetLoader'),
+              [t.identifier('Phaser')]
+            )
+          );
+          declPath.insertBefore(initCall);
+          modified = true;
+        }
       }
     },
   });

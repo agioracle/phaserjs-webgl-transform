@@ -27,12 +27,62 @@ function copyFileWithDirs(src: string, dest: string): void {
   fs.copyFileSync(src, dest);
 }
 
+/**
+ * Infer asset type from file extension.
+ */
+function inferTypeFromExt(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.png':
+    case '.jpg':
+    case '.jpeg':
+    case '.gif':
+    case '.webp':
+    case '.svg':
+    case '.bmp':
+      return 'image';
+    case '.mp3':
+    case '.wav':
+    case '.ogg':
+    case '.aac':
+    case '.m4a':
+      return 'audio';
+    case '.json':
+      return 'tilemapJSON';
+    default:
+      return 'other';
+  }
+}
+
+/**
+ * Recursively walk a directory and return all file paths (relative to baseDir).
+ */
+function walkDirRelative(dir: string, baseDir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
+
+  const entries = fs.readdirSync(dir);
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry as string);
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      results.push(...walkDirRelative(fullPath, baseDir));
+    } else if (stat.isFile()) {
+      // Skip .gitkeep and other dotfiles
+      if ((entry as string).startsWith('.')) continue;
+      results.push(path.relative(baseDir, fullPath));
+    }
+  }
+  return results;
+}
+
 export function splitAssets(
   assetRefs: AssetReference[],
   assetsDir: string,
   outputDir: string,
   remoteDir: string,
-  threshold: number
+  threshold: number,
+  remoteAssetsDir: string = ''
 ): SplitResult {
   const result: SplitResult = {
     local: [],
@@ -41,6 +91,7 @@ export function splitAssets(
 
   const seen = new Set<string>();
 
+  // --- Process scanner-collected asset references (from this.load.*() calls) ---
   for (const ref of assetRefs) {
     if (seen.has(ref.path)) continue;
     seen.add(ref.path);
@@ -51,6 +102,11 @@ export function splitAssets(
     let absolutePath = path.join(assetsDir, ref.path);
     if (!fs.existsSync(absolutePath)) {
       absolutePath = path.join(path.dirname(assetsDir), ref.path);
+    }
+
+    // Also try resolving from remoteAssetsDir parent if configured
+    if (!fs.existsSync(absolutePath) && remoteAssetsDir) {
+      absolutePath = path.join(path.dirname(remoteAssetsDir), ref.path);
     }
 
     if (!fs.existsSync(absolutePath)) {
@@ -69,7 +125,14 @@ export function splitAssets(
       type: ref.type,
     };
 
-    if (size > threshold) {
+    // Check if this file lives under the remoteAssetsDir — force remote
+    if (remoteAssetsDir && isUnderDir(absolutePath, remoteAssetsDir)) {
+      // Copy to outputDir so DevTools local preview works;
+      // in production, users remove these and serve from CDN.
+      const destPath = path.join(outputDir, ref.path);
+      copyFileWithDirs(absolutePath, destPath);
+      result.remote.push(entry);
+    } else if (size > threshold) {
       const destPath = path.join(remoteDir, ref.path);
       copyFileWithDirs(absolutePath, destPath);
       result.remote.push(entry);
@@ -80,5 +143,46 @@ export function splitAssets(
     }
   }
 
+  // --- Scan remoteAssetsDir for files NOT already referenced by loader calls ---
+  if (remoteAssetsDir && fs.existsSync(remoteAssetsDir)) {
+    // Determine the common parent used as web root (e.g. "public/")
+    // remoteAssetsDir is like "public/remote-assets", we need paths relative to
+    // the parent of remoteAssetsDir's parent to form "remote-assets/audio/bgm.mp3"
+    const webRoot = path.dirname(remoteAssetsDir); // e.g. "public"
+    const allRemoteFiles = walkDirRelative(remoteAssetsDir, webRoot);
+
+    for (const relPath of allRemoteFiles) {
+      if (seen.has(relPath)) continue;
+      seen.add(relPath);
+
+      const absolutePath = path.join(webRoot, relPath);
+      const stat = fs.statSync(absolutePath);
+      const size = stat.size;
+      const hash = computeHash(absolutePath);
+
+      const entry: AssetEntry = {
+        path: relPath,
+        absolutePath,
+        size,
+        hash,
+        type: inferTypeFromExt(relPath),
+      };
+
+      // Copy to outputDir for local DevTools preview
+      const destPath = path.join(outputDir, relPath);
+      copyFileWithDirs(absolutePath, destPath);
+      result.remote.push(entry);
+    }
+  }
+
   return result;
+}
+
+/**
+ * Check if a file path is under a given directory.
+ */
+function isUnderDir(filePath: string, dir: string): boolean {
+  const resolvedFile = path.resolve(filePath);
+  const resolvedDir = path.resolve(dir);
+  return resolvedFile.startsWith(resolvedDir + path.sep) || resolvedFile === resolvedDir;
 }

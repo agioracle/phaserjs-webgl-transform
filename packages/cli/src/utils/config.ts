@@ -8,6 +8,7 @@ export interface PhaserWxConfig {
   entry: string;
   assets: {
     dir: string;
+    remoteAssetsDir: string;
     remoteSizeThreshold: number;
     cacheMaxSize: number;
     downloadRetries: number;
@@ -106,6 +107,7 @@ export function loadConfig(configPath?: string): PhaserWxConfig {
     entry: parsed.entry,
     assets: {
       dir: typeof assets.dir === 'string' ? assets.dir : '',
+      remoteAssetsDir: typeof assets.remoteAssetsDir === 'string' ? assets.remoteAssetsDir : '',
       remoteSizeThreshold:
         typeof assets.remoteSizeThreshold === 'number'
           ? assets.remoteSizeThreshold

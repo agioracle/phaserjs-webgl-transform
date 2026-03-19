@@ -31,10 +31,13 @@ export class BootScene extends Phaser.Scene {
     });
 
     // --- Load your assets here ---
-    this.load.image('game_logo', 'assets/images/game_logo.png');
+    // Local assets (from public/assets/)
     this.load.image('ball', 'assets/images/ball.png');
-    this.load.audio('bgm', 'assets/audio/bgm.mp3');
     this.load.audio('ball_hit', 'assets/audio/ball_hit.mp3');
+
+    // Remote assets (from public/remote-assets/, loaded via CDN at runtime)
+    this.load.image('game_logo', 'remote-assets/images/game_logo.png');
+    this.load.audio('bgm', 'remote-assets/audio/bgm.mp3');
   }
 
   create() {

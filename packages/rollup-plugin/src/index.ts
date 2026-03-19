@@ -24,6 +24,8 @@ export interface PhaserWxTransformOptions {
   cdnBase: string;
   /** Size threshold in bytes; assets larger go to remote (default: 1MB) */
   sizeThreshold?: number;
+  /** Directory containing assets that should always be treated as remote */
+  remoteAssetsDir?: string;
 }
 
 const TRANSFORMABLE_EXTENSIONS = /\.(js|ts|jsx|tsx)$/;
@@ -41,6 +43,7 @@ export function phaserWxTransform(options: PhaserWxTransformOptions): Plugin {
     appid,
     cdnBase,
     sizeThreshold = 1024 * 1024,
+    remoteAssetsDir = '',
   } = options;
 
   const collectedAssetRefs: AssetReference[] = [];
@@ -75,13 +78,14 @@ export function phaserWxTransform(options: PhaserWxTransformOptions): Plugin {
       _bundle: OutputBundle
     ) {
       // Run asset pipeline
-      if (collectedAssetRefs.length > 0) {
+      if (collectedAssetRefs.length > 0 || remoteAssetsDir) {
         const splitResult = splitAssets(
           collectedAssetRefs,
           assetsDir,
           outputDir,
           remoteDir,
-          sizeThreshold
+          sizeThreshold,
+          remoteAssetsDir
         );
 
         generateManifest(splitResult, cdnBase, outputDir);
