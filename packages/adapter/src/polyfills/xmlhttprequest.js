@@ -1,5 +1,19 @@
 const READY_STATE = { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 };
 
+/**
+ * Detect whether a URL is a local file path (not a remote HTTP/data/blob URL).
+ */
+function _isLocalPath(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (/^https?:\/\//i.test(url)) return false;
+  if (/^\/\//.test(url)) return false;        // protocol-relative
+  if (/^data:/i.test(url)) return false;
+  if (/^blob:/i.test(url)) return false;
+  if (/^wxblob:/i.test(url)) return false;
+  if (/^wxfile:/i.test(url)) return false;     // wx temp file protocol
+  return true;
+}
+
 export default class WxXMLHttpRequest {
   constructor() {
     this.readyState = READY_STATE.UNSENT;
@@ -35,6 +49,12 @@ export default class WxXMLHttpRequest {
   }
 
   send(data) {
+    // --- Local file path: read directly via wx file system ---
+    if (_isLocalPath(this._url)) {
+      this._sendLocal();
+      return;
+    }
+
     const isBinary = this.responseType === 'arraybuffer' || this.responseType === 'blob';
 
     if (isBinary) {
@@ -81,6 +101,44 @@ export default class WxXMLHttpRequest {
         },
         fail: (err) => this._handleError(err),
       });
+    }
+  }
+
+  /**
+   * Read a local file path using wx.getFileSystemManager().
+   */
+  _sendLocal() {
+    try {
+      const fsm = wx.getFileSystemManager();
+      const isBinary = this.responseType === 'arraybuffer' || this.responseType === 'blob';
+
+      if (isBinary) {
+        // Binary read — returns ArrayBuffer
+        const arrayBuffer = fsm.readFileSync(this._url);
+        this.status = 200;
+        this.statusText = 'OK';
+        this.response = arrayBuffer;
+        this.readyState = READY_STATE.DONE;
+        if (this.onreadystatechange) this.onreadystatechange();
+        if (this.onload) this.onload();
+      } else {
+        // Text read
+        const text = fsm.readFileSync(this._url, 'utf-8');
+        this.status = 200;
+        this.statusText = 'OK';
+        if (this.responseType === 'json') {
+          this.response = JSON.parse(text);
+          this.responseText = text;
+        } else {
+          this.response = text;
+          this.responseText = text;
+        }
+        this.readyState = READY_STATE.DONE;
+        if (this.onreadystatechange) this.onreadystatechange();
+        if (this.onload) this.onload();
+      }
+    } catch (err) {
+      this._handleError(err);
     }
   }
 

@@ -141,6 +141,8 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
       ['XMLHttpRequest', 'XMLHttpRequest'],
       ['fetch', 'fetch'],
       ['localStorage', 'localStorage'],
+      ['Blob', 'Blob'],
+      ['URL', 'URL'],
     ];
     for (const [varName, exportName] of aliasMap) {
       introLines.push(`var ${varName} = __adapter_exports.${exportName};`);

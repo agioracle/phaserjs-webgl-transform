@@ -7,6 +7,7 @@ import { WxAudio, WxAudioContext } from './polyfills/audio.js';
 import WxXMLHttpRequest from './polyfills/xmlhttprequest.js';
 import wxFetch from './polyfills/fetch.js';
 import wxLocalStorage from './polyfills/local-storage.js';
+import { WxBlob, WxURL } from './polyfills/blob-url.js';
 
 /**
  * Safely set a property on an object, using Object.defineProperty to
@@ -63,6 +64,10 @@ safeSet(_global, 'XMLHttpRequest', WxXMLHttpRequest);
 safeSet(_global, 'fetch', wxFetch);
 safeSet(_global, 'localStorage', wxLocalStorage);
 
+// Blob + URL polyfills (for Phaser's XHR → Blob → createObjectURL pipeline)
+safeSet(_global, 'Blob', WxBlob);
+safeSet(_global, 'URL', WxURL);
+
 // Stub HTML element constructors that Phaser may check for
 safeSet(_global, 'HTMLElement', _global.HTMLElement || function HTMLElement() {});
 safeSet(_global, 'HTMLCanvasElement', _global.HTMLCanvasElement || function HTMLCanvasElement() {});
@@ -79,6 +84,8 @@ safeSet(globalThis, 'webkitAudioContext', WxAudioContext);
 safeSet(globalThis, 'XMLHttpRequest', WxXMLHttpRequest);
 safeSet(globalThis, 'fetch', wxFetch);
 safeSet(globalThis, 'localStorage', wxLocalStorage);
+safeSet(globalThis, 'Blob', WxBlob);
+safeSet(globalThis, 'URL', WxURL);
 safeSet(globalThis, 'HTMLElement', _global.HTMLElement);
 safeSet(globalThis, 'HTMLCanvasElement', _global.HTMLCanvasElement);
 
@@ -91,6 +98,8 @@ window.AudioContext = WxAudioContext;
 window.XMLHttpRequest = WxXMLHttpRequest;
 window.fetch = wxFetch;
 window.localStorage = wxLocalStorage;
+window.Blob = WxBlob;
+window.URL = WxURL;
 
 // Export polyfill objects so they can be used directly as module-scope
 // var aliases, bypassing any issues with GameGlobal property assignment.
@@ -106,4 +115,6 @@ export {
   WxXMLHttpRequest as XMLHttpRequest,
   wxFetch as fetch,
   wxLocalStorage as localStorage,
+  WxBlob as Blob,
+  WxURL as URL,
 };

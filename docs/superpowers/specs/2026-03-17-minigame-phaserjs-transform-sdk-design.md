@@ -67,10 +67,11 @@ wechat-minigame-phaserjs-webgl-transform/
 │       │   │   ├── document.js       # document.createElement, body, documentElement, getElementById
 │       │   │   ├── navigator.js      # navigator.userAgent, onLine, vibrate
 │       │   │   ├── canvas.js         # Canvas + WebGL via wx.createCanvas()
-│       │   │   ├── image.js          # Image via wx.createImage()
+│       │   │   ├── image.js          # Image via wx.createImage() + crossOrigin stub + wxblob:// handling
 │       │   │   ├── audio.js          # HTMLAudio via InnerAudioContext (Web Audio disabled)
-│       │   │   ├── xmlhttprequest.js # XHR via wx.request() / wx.downloadFile()
-│       │   │   ├── fetch.js          # fetch() polyfill via wx.request() / wx.downloadFile()
+│       │   │   ├── xmlhttprequest.js # XHR via wx.request() / wx.downloadFile() + local file support
+│       │   │   ├── fetch.js          # fetch() polyfill via wx.request() / wx.downloadFile() + local file support
+│       │   │   ├── blob-url.js       # Blob + URL.createObjectURL/revokeObjectURL polyfill
 │       │   │   └── local-storage.js  # localStorage via wx storage APIs
 │       │   ├── bridge/
 │       │   │   ├── touch.js          # wx touch → DOM TouchEvent
@@ -106,8 +107,11 @@ Only polyfill what Phaser 3 actually accesses at runtime. Based on analysis of P
 | `canvas.getContext('2d')` | Native WeChat 2D context (off-screen canvases for text rendering) |
 | `canvas.toDataURL()` / `canvas.toTempFilePath()` | Supported on WeChat on-screen canvas via `canvas.toTempFilePathSync()`. Off-screen canvases: `toDataURL()` supported in base library >= 2.11.0. Documented as limited support. |
 | `new Audio()` / HTML5 Audio | Shim wrapping `wx.createInnerAudioContext()` |
-| `XMLHttpRequest` | Shim: `responseType === 'arraybuffer'/'blob'` routes to `wx.downloadFile()` + `fs.readFile()`; text/JSON routes to `wx.request()` |
-| `fetch()` | Shim: same routing as XHR. Supports `Response.json()`, `.text()`, `.arrayBuffer()`. Required for Phaser 3.60+ loader. |
+| `XMLHttpRequest` | Shim: `responseType === 'arraybuffer'/'blob'` routes to `wx.downloadFile()` + `fs.readFile()`; text/JSON routes to `wx.request()`. **Local file paths** (not starting with `http://`, `https://`, `//`, `data:`, `blob:`) are detected and read directly via `wx.getFileSystemManager().readFileSync()`. |
+| `fetch()` | Shim: same routing as XHR. Supports `Response.json()`, `.text()`, `.arrayBuffer()`. Required for Phaser 3.60+ loader. **Local file paths** are detected and read via `wx.getFileSystemManager().readFileSync()`. |
+| `Blob` | `WxBlob` polyfill: stores data parts as a single ArrayBuffer. Supports `size`, `type`, `slice()`, `arrayBuffer()`, `text()`. Required because Phaser's XHR image loader creates Blobs from arraybuffer responses. |
+| `URL.createObjectURL` / `URL.revokeObjectURL` | `WxURL` polyfill: `createObjectURL(blob)` stores blob in a Map keyed by `wxblob://<id>`, returns the key. `revokeObjectURL(url)` removes from Map. Required because Phaser creates blob URLs for loaded image data. |
+| `image.crossOrigin` | No-op property stub on `wx.createImage()` return value. Phaser sets `image.crossOrigin = 'anonymous'` which may crash without this stub. |
 | `localStorage` | `wx.setStorageSync()` / `wx.getStorageSync()` |
 | `addEventListener('touchstart/move/end', ...)` on canvas | `wx.onTouchStart/Move/End` → synthetic DOM `TouchEvent` dispatched to canvas listeners |
 | `addEventListener('visibilitychange')` on document | Dispatched on `wx.onShow`/`wx.onHide` |
@@ -151,6 +155,32 @@ Rationale: WeChat's `InnerAudioContext` is a file-playback wrapper, fundamentall
 - **`AudioContext` constructor** exists as a stub that logs a warning if accessed directly, preventing crashes in third-party code that feature-detects Web Audio
 
 This approach is honest about WeChat's audio limitations rather than providing a broken shim.
+
+### Asset Loading Pipeline (Blob/URL + Local File Support)
+
+When Phaser games use real image/audio assets (not just programmatic graphics), the default loading pipeline requires several browser APIs that WeChat Mini-Game doesn't provide. Phaser's XHR image loader follows this flow:
+
+```
+XHR(url, responseType='arraybuffer')
+  → new Blob([arrayBuffer], {type: 'image/png'})
+  → URL.createObjectURL(blob)
+  → image.src = blobURL
+  → image.crossOrigin = 'anonymous'
+```
+
+**Problems solved:**
+
+1. **XMLHttpRequest local file paths:** WeChat's `wx.request()` and `wx.downloadFile()` treat ALL URLs as remote HTTP requests. Local file paths (JSON, atlas configs, binary assets) fail. **Solution:** `_isLocalPath()` detection in `send()` — paths not starting with `http://`, `https://`, `//`, `data:`, `blob:`, `wxblob:`, `wxfile:` are read directly via `wx.getFileSystemManager().readFileSync()`.
+
+2. **fetch local file paths:** Same issue and same solution as XHR — local paths detected and read via `wx.getFileSystemManager().readFileSync()`.
+
+3. **Blob + URL.createObjectURL:** WeChat has no `Blob` or `URL.createObjectURL`. **Solution:** `WxBlob` stores data parts as ArrayBuffer; `WxURL.createObjectURL(blob)` stores blob in a Map keyed by `wxblob://<counter>` and returns that URI; `WxURL.revokeObjectURL(url)` removes it.
+
+4. **Image crossOrigin:** Phaser sets `image.crossOrigin = 'anonymous'`, but `wx.createImage()` may not support this property. **Solution:** No-op `crossOrigin` property stub defined via `Object.defineProperty`.
+
+5. **Image wxblob:// src:** When Phaser sets `image.src` to a `wxblob://` URL, the Image polyfill intercepts the setter, retrieves the blob data from the store, writes it to a wx temp file via `wx.getFileSystemManager().writeFileSync()`, and sets the real `src` to the temp file path.
+
+**Build integration:** `Blob` and `URL` are registered as global polyfills in `index.js` and included in the module-scope alias map in `build.ts`, ensuring bare references resolve correctly throughout the bundled game code.
 
 ### Lifecycle Proxy
 

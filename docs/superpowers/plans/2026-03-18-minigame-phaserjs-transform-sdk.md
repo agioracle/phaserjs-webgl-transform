@@ -7310,3 +7310,74 @@ After completing all tasks, run the full CLI test suite to confirm everything pa
 ```bash
 pnpm --filter @aspect/cli test -- --run
 ```
+
+---
+
+# Post-Implementation: Fix Asset Loading for WeChat Mini-Game
+
+**Date:** 2026-03-19
+**Status:** Completed
+
+## Context
+
+When Phaser games use real image/audio assets (not just programmatic graphics), multiple polyfill gaps cause loading failures in WeChat Mini-Game:
+
+1. **XMLHttpRequest** treats ALL URLs as remote HTTP requests — local file paths (JSON, atlas configs, binary) fail
+2. **fetch** same issue — no local file support
+3. **`Blob` / `URL.createObjectURL`** don't exist in WeChat — Phaser's default image loader creates Blobs from XHR arraybuffer responses then uses `URL.createObjectURL()`, which crashes
+4. **Image `crossOrigin`** — Phaser sets `image.crossOrigin = 'anonymous'`, `wx.createImage()` may not support it
+
+## Files Modified
+
+| Action | File | Purpose |
+|--------|------|---------|
+| Modified | `packages/adapter/src/polyfills/xmlhttprequest.js` | Detect local paths → use `wx.getFileSystemManager()` |
+| Modified | `packages/adapter/src/polyfills/fetch.js` | Detect local paths → use `wx.getFileSystemManager()` |
+| Modified | `packages/adapter/src/polyfills/image.js` | Wrap `wx.createImage()` with `crossOrigin` stub + `wxblob://` src handling |
+| Created | `packages/adapter/src/polyfills/blob-url.js` | Polyfill `Blob` and `URL.createObjectURL` / `URL.revokeObjectURL` |
+| Modified | `packages/adapter/src/index.js` | Register Blob/URL polyfills on global scope, export them |
+| Modified | `packages/cli/src/commands/build.ts` | Add `Blob`/`URL` to module-scope intro aliases |
+
+## Implementation Details
+
+### XMLHttpRequest — local file support
+
+Added `_isLocalPath()` helper to detect URLs not starting with `http://`, `https://`, `//`, `data:`, `blob:`, `wxblob:`, `wxfile:`. In `send()`, local paths are routed to `_sendLocal()` which uses `wx.getFileSystemManager().readFileSync()`:
+
+- Text/JSON: `readFileSync(path, 'utf-8')` + `JSON.parse()` for json responseType
+- ArrayBuffer/Blob: `readFileSync(path)` returns ArrayBuffer directly
+- Sets status=200, fires `onreadystatechange` + `onload`
+
+### fetch — local file support
+
+Same `_isLocalPath()` pattern. `wxFetch()` routes local paths to `_fetchLocal()`:
+
+- Tries text read first (`utf-8`), falls back to binary (ArrayBuffer)
+- Enhanced `arrayBuffer()` on `WxResponse` to handle both ArrayBuffer and string data
+
+### Blob + URL.createObjectURL polyfill (blob-url.js)
+
+- `WxBlob` class: merges data parts into a single ArrayBuffer, supports `type`, `size`, `slice()`, `arrayBuffer()`, `text()`
+- `WxURL` class: extends native `URL` if available, otherwise provides minimal shim
+  - `createObjectURL(blob)` → stores blob in Map keyed by `wxblob://<counter>`, returns URI
+  - `revokeObjectURL(url)` → removes from Map
+- `getBlobData(url)` helper exported for Image polyfill
+
+### Image polyfill — crossOrigin + blob URL support
+
+- `crossOrigin` property: no-op setter/getter via `Object.defineProperty`
+- `src` setter interception: if value starts with `wxblob://`:
+  1. Retrieves blob data via `getBlobData(url)`
+  2. Writes to wx temp file via `fsm.writeFileSync(tempPath, blob._buffer)`
+  3. Sets real `src` to temp file path
+
+### Registration in index.js + build.ts
+
+- `index.js`: imports `WxBlob`, `WxURL`, registers on `_global`, `globalThis`, and `window`, exports both
+- `build.ts`: added `['Blob', 'Blob']` and `['URL', 'URL']` to aliasMap
+
+## Verification
+
+- CLI build (`pnpm --filter @aspect/cli build`): ✅ Passes
+- Adapter tests (`xmlhttprequest.test.js`, `fetch.test.js`, `image.test.js`): ✅ All pass
+- Pre-existing test failures (canvas.test.js, index.test.js, game-config.test.ts): Unrelated to these changes
