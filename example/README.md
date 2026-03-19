@@ -35,8 +35,11 @@ src/
   ui/
     Button.js          Reusable button component
 public/
-  assets/
+  assets/            Local assets
     images/            Image assets (png, jpg, webp)
-    audio/             Audio assets (mp3, ogg)
+    audio/             Audio assets (mp3)
+  remote-assets/     Remote assets
+    images/            Image assets (png, jpg, webp)
+    audio/             Audio assets (mp3)
 phaser-wx.config.json  WeChat Mini-Game build configuration
 ```
