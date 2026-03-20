@@ -112,7 +112,8 @@ export async function newCommand(
 
   // Locate example directory from monorepo root
   const monorepoRoot = findMonorepoRoot(__dirname);
-  const exampleDir = path.join(monorepoRoot, 'example');
+  const templateName = answers.orientation === 'landscape' ? 'example-landscape' : 'example-portrait';
+  const exampleDir = path.join(monorepoRoot, templateName);
 
   if (!fs.existsSync(exampleDir)) {
     console.error(`\n❌ Example directory not found at "${exampleDir}".`);

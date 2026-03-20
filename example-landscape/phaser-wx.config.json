@@ -1,0 +1,28 @@
+{
+  "appid": "wx4a4d257bc28799a0",
+  "orientation": "landscape",
+  "cdn": "https://cdn.example.com",
+  "entry": "src/main.js",
+  "assets": {
+    "dir": "public/assets",
+    "remoteAssetsDir": "public/remote-assets",
+    "remoteSizeThreshold": 204800
+  },
+  "output": {
+    "dir": "dist-wx"
+  },
+  "subpackages": [
+    {
+      "name": "menu",
+      "root": "menu/",
+      "entry": "src/scenes/MenuScene.js",
+      "outputFile": "menu-scene.js"
+    },
+    {
+      "name": "game-play",
+      "root": "game-play/",
+      "entry": "src/scenes/GameScene.js",
+      "outputFile": "game-scene.js"
+    }
+  ]
+}

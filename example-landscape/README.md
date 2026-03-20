@@ -1,8 +1,8 @@
-# phaser-wx-example
+# phaser-wx-example (landscape)
 
-Example Phaser.js 3.x Breakout game for WeChat Mini-Game, built with `phaser-wx`.
+Example Phaser.js 3.x FlappyBird game (landscape) for WeChat Mini-Game, built with `phaser-wx`.
 
-This project serves as both a development/test target and the source template for `phaser-wx new`.
+This project serves as both a development/test target and the source template for `phaser-wx new` (landscape orientation).
 
 ## Getting Started
 
@@ -27,7 +27,7 @@ game.js  ──→  BootScene  ──→  MenuScene  ──→  GameScene
 1. **game.js** — "Made with Phaser" 闪屏（渐显 + 呼吸灯），同时异步下载 engine 分包
 2. **BootScene** — Phaser 加载画面（进度条），加载 game_logo，并行下载 menu 分包
 3. **MenuScene** — 标题界面 + Start 按钮，加载 bgm，预下载 game-play 分包
-4. **GameScene** — Breakout 游戏（挡板、球、砖块、计分、生命值）
+4. **GameScene** — FlappyBird 游戏（小鸟、管道、计分）
 
 ## Subpackage Structure
 
@@ -48,8 +48,8 @@ game.js  ──→  BootScene  ──→  MenuScene  ──→  GameScene
 |------|----------|----------|
 | `game_logo.png` | `public/remote-assets/images/` | CDN 远程加载 |
 | `bgm.mp3` | `public/remote-assets/audio/` | CDN 远程加载 |
-| `ball.png` | `public/assets/images/` | 构建时自动复制到 `game-play/` 分包 |
-| `ball_hit.mp3` | `public/assets/audio/` | 构建时自动复制到 `game-play/` 分包 |
+| `bird.png` | `public/assets/images/` | 构建时自动复制到 `game-play/` 分包 |
+| `bird_hit.mp3` | `public/assets/audio/` | 构建时自动复制到 `game-play/` 分包 |
 
 - `remote-assets/` 下的资源始终从 CDN 加载，不打包进小游戏
 - `assets/` 下的资源由构建工具根据场景引用自动复制到对应分包目录
@@ -62,9 +62,9 @@ src/
   scenes/
     BootScene.js       Loading screen + downloads menu subpackage
     MenuScene.js       Title screen + preloads game-play subpackage
-    GameScene.js       Breakout game scene
-  ui/
-    Button.js          Reusable button component
+    GameScene.js       FlappyBird game scene
+  utils/
+    safe-area.js       Safe area helper for notch devices
 public/
   assets/              Local assets (auto-copied to subpackage dirs at build time)
     images/

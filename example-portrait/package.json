@@ -1,0 +1,15 @@
+{
+  "name": "phaser-wx-example",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve public",
+    "build": "phaser-wx build"
+  },
+  "dependencies": {
+    "phaser": "^3.80.0"
+  },
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}

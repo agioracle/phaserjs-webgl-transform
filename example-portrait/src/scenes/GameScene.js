@@ -68,7 +68,7 @@ export class GameScene extends Phaser.Scene {
       fontSize: '28px', color: '#ffffff', fontStyle: 'bold',
     }).setDepth(10);
 
-    this.livesText = this.add.text(W - 24, sa.top + 16, '\u2764 3', {
+    this.livesText = this.add.text(W/2, sa.top + 16, '\u2764 3', {
       fontSize: '28px', color: '#ff4757', fontStyle: 'bold',
     }).setOrigin(1, 0).setDepth(10);
 
