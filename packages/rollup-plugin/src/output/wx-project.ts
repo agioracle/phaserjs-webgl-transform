@@ -130,14 +130,15 @@ var _offCanvas = wx.createCanvas();
 _offCanvas.width = _canvas.width;
 _offCanvas.height = _canvas.height;
 var _ctx2d = _offCanvas.getContext('2d');
-var _fontSize = Math.round(_w * _dpr * 0.05);
+var _shortSide = Math.min(_w, _h);
+var _fontSize = Math.round(_shortSide * _dpr * 0.05);
 var _cw = _offCanvas.width;
 var _ch = _offCanvas.height;
 
 // Solar system parameters
 var _sunX = _cw / 2;
 var _sunY = _ch * 0.38;
-var _sunRadius = Math.round(_w * _dpr * 0.045);
+var _sunRadius = Math.round(_shortSide * _dpr * 0.045);
 var _planets = [
   { color: '#b0b0b0', radius: _sunRadius * 0.15, orbit: _sunRadius * 2.0,  orbitY: 0.45, speed: 4.5,  angle: 0.0 },
   { color: '#e8c44a', radius: _sunRadius * 0.25, orbit: _sunRadius * 2.8,  orbitY: 0.45, speed: 3.2,  angle: 1.0 },
