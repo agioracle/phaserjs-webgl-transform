@@ -1,6 +1,6 @@
 # minigame-phaserjs-transform-sdk
 
-将 Phaser.js 3.x WebGL 游戏转换为高性能微信小游戏的工具链。
+将 Phaser.js 3.x WebGL 游戏转换为高性能微信小游戏的工具链，同时支持构建 H5 浏览器版本。
 
 ## 概述
 
@@ -84,9 +84,17 @@ npm run dev
 
 # 构建微信小游戏包
 npm run build
+
+# 构建 H5 浏览器版本
+npm run build:h5
+
+# 构建 H5 并启动本地预览
+npm run preview:h5
 ```
 
-构建产物输出到 `dist-wx/`，可直接在微信开发者工具中打开。
+- `npm run build` — 输出到 `dist-wx/`，可直接在微信开发者工具中打开
+- `npm run build:h5` — 输出到 `dist-h5/`，包含 `index.html` + `game.js`（IIFE 单文件）
+- `npm run preview:h5` — 构建后自动启动本地服务器，浏览器打开即可体验
 
 
 ## CLI 命令
@@ -103,14 +111,34 @@ phaser-wx new my-game --template full   # 等效，full 为默认模板
 
 ### `phaser-wx build`
 
-执行构建，将 Phaser.js 项目转换为微信小游戏。
+执行构建，将 Phaser.js 项目转换为微信小游戏或 H5 浏览器版本。
 
 ```bash
-phaser-wx build
-phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
+phaser-wx build                                            # 默认构建微信小游戏（--target wx）
+phaser-wx build --target h5                                # 构建 H5 浏览器版本
+phaser-wx build --cdn https://cdn.example.com/assets       # 覆盖 CDN 地址
+phaser-wx build --target h5 --cdn https://cdn.example.com  # H5 + CDN
 ```
 
-> **提示**：在 `phaser-wx new` 创建的项目中，`npm run build` 已预配置为 `phaser-wx build`，直接使用即可。
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--target <platform>` | 构建目标：`wx`（微信小游戏）或 `h5`（浏览器） | `wx` |
+| `--cdn <url>` | 覆盖配置文件中的 CDN 基础 URL | — |
+
+#### 微信小游戏 vs H5 构建差异
+
+| | 微信小游戏 (`wx`) | H5 浏览器 (`h5`) |
+|---|---|---|
+| **输出目录** | `dist-wx/` | `dist-h5/` |
+| **模块格式** | CJS（多文件分包） | IIFE（单文件 `game.js`） |
+| **入口文件** | `game.js`（闪屏 + 引擎加载） | `index.html`（引用 `game.js`） |
+| **适配器** | 注入 `phaser-wx-adapter.js` | 不需要 |
+| **分包** | 引擎分包 + 场景分包 | 所有场景打入单 bundle |
+| **缩放模式** | `Scale.NONE`（canvas 即屏幕） | `Scale.FIT` + `CENTER_BOTH`（自适应窗口） |
+| **包体积检查** | 20MB 限制 | 无限制 |
+| **资源清单** | `asset-manifest.json`（wx 读取） | `asset-manifest.json`（XHR 读取） |
+
+> **提示**：在 `phaser-wx new` 创建的项目中，`npm run build` / `npm run build:h5` 已预配置，直接使用即可。
 
 ## 配置文件
 
@@ -170,6 +198,8 @@ phaser-wx build --cdn https://cdn.example.com/assets   # 覆盖 CDN 地址
 
 ### 构建产物结构
 
+#### 微信小游戏 (`--target wx`)
+
 ```
 dist-wx/                              主包 ≈ 50KB
 ├── game.js                           启动入口 + "Made with Phaser" 闪屏
@@ -190,6 +220,19 @@ dist-wx/                              主包 ≈ 50KB
     ├── game-scene.js
     └── assets/                       该场景的本地资源（自动复制）
 ```
+
+#### H5 浏览器 (`--target h5`)
+
+```
+dist-h5/
+├── index.html                        HTML 入口（自适应视口）
+├── game.js                           IIFE 单文件（含 Phaser + 所有场景）
+├── asset-manifest.json               资源清单（CDN 支持）
+├── assets/                           本地资源
+└── remote/                           远程资源（需上传 CDN）
+```
+
+H5 构建将所有场景（包括分包中的场景）自动合并到单个 `game.js` 中，无需分包加载。
 
 ### 启动流程
 
@@ -293,8 +336,10 @@ if (this._menuReady) {
 │                                                         │
 │  ┌──────────────────────────────────────────────────────┐│
 │  │ 输出生成                                             ││
-│  │ · game.js / game.json / project.config.json         ││
-│  │ · 适配器注入 · 包体积检查 (16MB 警告 / 20MB 错误)    ││
+│  │ · wx: game.js / game.json / project.config.json     ││
+│  │ · h5: index.html（自适应视口）                       ││
+│  │ · 适配器注入（仅 wx）                                ││
+│  │ · 包体积检查 (16MB 警告 / 20MB 错误，仅 wx)          ││
 │  └──────────────────────────────────────────────────────┘│
 ├─────────────────────────────────────────────────────────┤
 │                    @aspect/adapter                       │
@@ -313,7 +358,9 @@ if (this._menuReady) {
 ### 构建流程
 
 1. **AST 变换**（`transform` 钩子）：
-   - 解析 `new Phaser.Game(config)` 调用，注入 `type: Phaser.WEBGL`、`canvas: GameGlobal.__wxCanvas`、`parent: null`、`audio: { disableWebAudio: true }`、`loader: { imageLoadType: 'HTMLImageElement' }`、`scale: { mode: NONE, autoCenter: NO_CENTER }`
+   - 解析 `new Phaser.Game(config)` 调用
+   - **微信目标**：注入 `type: Phaser.WEBGL`、`canvas: GameGlobal.__wxCanvas`、`parent: null`、`audio: { disableWebAudio: true }`、`loader: { imageLoadType: 'HTMLImageElement' }`、`scale: { mode: NONE, autoCenter: NO_CENTER }`
+   - **H5 目标**：注入 `scale: { mode: FIT, autoCenter: CENTER_BOTH }`（自适应窗口缩放），不修改其他配置
    - 扫描所有 `this.load.image/audio/spritesheet/atlas` 等调用，收集资源引用
 
 2. **资源管线**（`generateBundle` 钩子）：
@@ -323,12 +370,10 @@ if (this._menuReady) {
    - 生成 `asset-manifest.json` 供运行时加载器使用
 
 3. **输出生成**：
-   - 生成 `game.js`（适配器 → 自定义适配器 → 游戏代码的加载链）
-   - 生成 `game.json`（屏幕方向、网络超时等配置）
-   - 生成 `project.config.json`（微信开发者工具项目配置）
-   - 复制适配器脚本到输出目录
+   - **微信目标**：生成 `game.js`（闪屏 + 适配器加载链）、`game.json`、`project.config.json`，复制适配器脚本
+   - **H5 目标**：生成 `index.html`（自适应视口），所有场景合并为单个 IIFE `game.js`
 
-4. **包体积检查**：
+4. **包体积检查**（仅微信目标）：
    - 本地包体积 > 16MB：输出警告
    - 本地包体积 > 20MB：构建失败并输出文件大小明细
 
