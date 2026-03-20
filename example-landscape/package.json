@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "npx serve public",
-    "build": "phaser-wx build"
+    "build": "phaser-wx build",
+    "build:h5": "phaser-wx build --target h5",
+    "preview:h5": "phaser-wx build --target h5 && npx serve dist-h5"
   },
   "dependencies": {
     "phaser": "^3.80.0"

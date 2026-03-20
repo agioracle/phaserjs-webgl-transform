@@ -18,8 +18,9 @@ export function createProgram(): Command {
 
   program
     .command('build')
-    .description('Build for WeChat Mini-Game')
+    .description('Build for WeChat Mini-Game or H5 browser')
     .option('--cdn <url>', 'CDN base URL for remote assets')
+    .option('--target <platform>', 'Build target: wx or h5', 'wx')
     .action(buildCommand);
 
   program

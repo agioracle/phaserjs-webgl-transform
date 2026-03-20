@@ -4,6 +4,7 @@ import { loadConfig } from '../utils/config.js';
 
 interface BuildOptions {
   cdn?: string;
+  target?: 'wx' | 'h5';
 }
 
 interface FileSizeEntry {
@@ -45,85 +46,14 @@ function formatSize(bytes: number): string {
 const SIZE_LIMIT_ERROR = 20_971_520; // 20MB
 const SIZE_LIMIT_WARN = 16_777_216; // 16MB
 
-export async function buildCommand(options: BuildOptions): Promise<void> {
-  // Lazy imports: rollup and plugins are external and only needed for build
-  const { rollup } = await import('rollup');
-  const { phaserWxTransform, scanAssets } = await import('@aspect/rollup-plugin');
-  const nodeResolve = (await import('@rollup/plugin-node-resolve')).default;
-  const commonjs = (await import('@rollup/plugin-commonjs')).default;
-
-  const config = loadConfig();
-
-  if (options.cdn) {
-    config.cdn = options.cdn;
-  }
-
-  console.log(`Building WeChat Mini-Game...`);
-  console.log(`  Entry: ${config.entry}`);
-  console.log(`  Output: ${config.output.dir}`);
-  console.log(`  CDN: ${config.cdn}`);
-
-  // Resolve adapter path: walk up from __dirname to find monorepo root (pnpm-workspace.yaml),
-  // then use packages/adapter/src/index.js. This works regardless of where cwd is.
-  let adapterPath = '';
-  {
-    let dir = __dirname;
-    while (true) {
-      if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
-        const candidate = path.join(dir, 'packages', 'adapter', 'src', 'index.js');
-        if (fs.existsSync(candidate)) {
-          adapterPath = candidate;
-        }
-        break;
-      }
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-  }
-
-  const pluginOptions = {
-    outputDir: config.output.dir,
-    assetsDir: config.assets.dir,
-    remoteDir: path.join(config.output.dir, 'remote'),
-    adapterPath,
-    orientation: config.orientation,
-    appid: config.appid,
-    cdnBase: config.cdn,
-    sizeThreshold: config.assets.remoteSizeThreshold,
-    remoteAssetsDir: config.assets.remoteAssetsDir || '',
-  };
-
-  // Bundle the adapter into a single file.
-  let adapterCode = '';
-  if (adapterPath && fs.existsSync(adapterPath)) {
-    const adapterBundle = await rollup({
-      input: adapterPath,
-      plugins: [nodeResolve(), commonjs()],
-    });
-    const adapterOutput = await adapterBundle.generate({
-      format: 'cjs' as const,
-      exports: 'named' as const,
-    });
-    await adapterBundle.close();
-    adapterCode = adapterOutput.output[0].code;
-    // Write standalone adapter file too (for separate loading if needed)
-    fs.mkdirSync(config.output.dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(config.output.dir, 'phaser-wx-adapter.js'),
-      adapterCode,
-      'utf-8'
-    );
-  }
-
-  // Build a module-scope intro that creates var aliases from the adapter's
-  // CJS exports (captured into GameGlobal.__adapterExports by game.js).
-  // We cannot read from GameGlobal.window etc. directly because WeChat
-  // defines some of them as read-only getters that safeSet may silently
-  // fail to override, leaving them undefined.
-  // Bare references like `document` inside Phaser resolve up the scope chain
-  // to these module-scope vars, ensuring polyfills are used.
-  const introLines = [];
+/**
+ * Build module-scope intro for WeChat Mini-Game target.
+ * Creates var aliases from the adapter's CJS exports (captured into
+ * GameGlobal.__adapterExports by game.js). Uses wx.getFileSystemManager
+ * to read asset-manifest.json for the remote asset loader.
+ */
+function buildWxIntro(): string {
+  const introLines: string[] = [];
   // _ae = adapter exports (guaranteed correct), _g = GameGlobal fallback
   introLines.push('var _g = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;');
   introLines.push('var _ae = _g.__adapterExports || {};');
@@ -151,9 +81,7 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   introLines.push('var HTMLElement = _g.HTMLElement || function HTMLElement() {};');
   introLines.push('var HTMLCanvasElement = _g.HTMLCanvasElement || function HTMLCanvasElement() {};');
 
-  // --- Remote asset loader initializer ---
-  // Called by injected code right before `new Phaser.Game(config)`.
-  // At that point Phaser module has been evaluated, so Phaser.Loader exists.
+  // --- Remote asset loader initializer (wx version) ---
   introLines.push('');
   introLines.push('// --- Remote asset loader ---');
   introLines.push('var __remoteAssetLoaderInitialized = false;');
@@ -189,169 +117,401 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
   introLines.push('}');
   introLines.push('// --- end remote asset loader ---');
   introLines.push('');
-  const introCode = introLines.join('\n');
 
-  // Pass subpackages config to the plugin so it can generate correct game.json
-  (pluginOptions as any).subpackages = config.subpackages;
+  return introLines.join('\n');
+}
 
-  const rollupConfig = {
-    input: config.entry,
-    plugins: [
-      nodeResolve({ browser: true }),
-      commonjs(),
-      phaserWxTransform(pluginOptions),
-    ],
+/**
+ * Build module-scope intro for H5 browser target.
+ * No GameGlobal/adapter aliases needed. Uses synchronous XMLHttpRequest
+ * to read asset-manifest.json for the remote asset loader.
+ */
+function buildH5Intro(): string {
+  const introLines: string[] = [];
+
+  // --- Remote asset loader initializer (H5 version) ---
+  introLines.push('// --- Remote asset loader (H5) ---');
+  introLines.push('var __remoteAssetLoaderInitialized = false;');
+  introLines.push('function __initRemoteAssetLoader(Phaser) {');
+  introLines.push('  if (__remoteAssetLoaderInitialized) return;');
+  introLines.push('  __remoteAssetLoaderInitialized = true;');
+  introLines.push('  try {');
+  introLines.push('    var xhr = new XMLHttpRequest();');
+  introLines.push('    xhr.open("GET", "asset-manifest.json", false);');
+  introLines.push('    xhr.send();');
+  introLines.push('    if (xhr.status !== 200) return;');
+  introLines.push('    var manifest = JSON.parse(xhr.responseText);');
+  introLines.push('    if (!manifest || !manifest.assets) return;');
+  introLines.push('    var hasRemote = false;');
+  introLines.push('    for (var k in manifest.assets) { if (manifest.assets[k].remote) { hasRemote = true; break; } }');
+  introLines.push('    if (!hasRemote) return;');
+  introLines.push('    var _cdnBase = manifest.cdnBase || "";');
+  introLines.push('    if (_cdnBase && _cdnBase[_cdnBase.length - 1] !== "/") _cdnBase += "/";');
+  introLines.push('    var _origStart = Phaser.Loader.LoaderPlugin.prototype.start;');
+  introLines.push('    Phaser.Loader.LoaderPlugin.prototype.start = function() {');
+  introLines.push('      var entries = this.list && this.list.entries;');
+  introLines.push('      if (entries) {');
+  introLines.push('        for (var i = 0; i < entries.length; i++) {');
+  introLines.push('          var file = entries[i];');
+  introLines.push('          var fileUrl = file.url || "";');
+  introLines.push('          var entry = manifest.assets[fileUrl];');
+  introLines.push('          if (entry && entry.remote) {');
+  introLines.push('            file.url = _cdnBase + fileUrl;');
+  introLines.push('          }');
+  introLines.push('        }');
+  introLines.push('      }');
+  introLines.push('      return _origStart.apply(this, arguments);');
+  introLines.push('    };');
+  introLines.push('  } catch(e) { /* manifest not found or parse error — no remote assets */ }');
+  introLines.push('}');
+  introLines.push('// --- end remote asset loader ---');
+  introLines.push('');
+
+  return introLines.join('\n');
+}
+
+/**
+ * Generate a temporary H5 entry file that imports all scene subpackages
+ * into a single bundle. Reads main.js and each subpackage entry, extracts
+ * exported class names, and wires them into the Phaser game config's scene array.
+ */
+function generateH5Entry(
+  mainEntry: string,
+  subpackages: Array<{ name: string; root: string; entry: string; outputFile: string }>,
+): { tempEntryPath: string } {
+  let mainSource = fs.readFileSync(mainEntry, 'utf-8');
+  const mainDir = path.dirname(mainEntry);
+
+  // Collect all scene class names and their import paths
+  const sceneImports: string[] = [];
+  const sceneClassNames: string[] = [];
+
+  for (const sub of subpackages) {
+    const entryPath = sub.entry;
+    if (!fs.existsSync(entryPath)) {
+      console.warn(`  Warning: subpackage entry not found: ${entryPath}, skipping.`);
+      continue;
+    }
+    const entrySource = fs.readFileSync(entryPath, 'utf-8');
+
+    // Extract exported class names: export class XXX or export default class XXX
+    const classMatches = entrySource.matchAll(/export\s+(?:default\s+)?class\s+(\w+)/g);
+    const classNames: string[] = [];
+    for (const match of classMatches) {
+      classNames.push(match[1]);
+    }
+
+    if (classNames.length === 0) {
+      console.warn(`  Warning: no exported classes found in ${entryPath}, skipping.`);
+      continue;
+    }
+
+    // Compute relative import path from main entry dir to subpackage entry
+    let relativePath = path.relative(mainDir, entryPath);
+    if (!relativePath.startsWith('.')) {
+      relativePath = './' + relativePath;
+    }
+    // Remove .ts/.js extension for import (rollup resolves it)
+    relativePath = relativePath.replace(/\.(ts|js|tsx|jsx)$/, '');
+
+    sceneImports.push(`import { ${classNames.join(', ')} } from '${relativePath}';`);
+    sceneClassNames.push(...classNames);
+  }
+
+  // Inject imports at the top of main source
+  if (sceneImports.length > 0) {
+    mainSource = sceneImports.join('\n') + '\n' + mainSource;
+  }
+
+  // Expand scene array: find `scene: [SomeScene]` or `scene: [SomeScene, ...]`
+  // and append all collected scene class names
+  if (sceneClassNames.length > 0) {
+    mainSource = mainSource.replace(
+      /scene\s*:\s*\[([^\]]*)\]/,
+      (match, inner) => {
+        const existing = inner.trim();
+        // Avoid duplicating already-listed classes
+        const existingNames = existing.split(',').map((s: string) => s.trim()).filter(Boolean);
+        const newNames = sceneClassNames.filter((n) => !existingNames.includes(n));
+        if (newNames.length === 0) return match;
+        return `scene: [${existing}, ${newNames.join(', ')}]`;
+      }
+    );
+  }
+
+  // Write temporary entry file next to main entry
+  const tempEntryPath = path.join(mainDir, '_h5_entry.js');
+  fs.writeFileSync(tempEntryPath, mainSource, 'utf-8');
+
+  return { tempEntryPath };
+}
+
+export async function buildCommand(options: BuildOptions): Promise<void> {
+  // Lazy imports: rollup and plugins are external and only needed for build
+  const { rollup } = await import('rollup');
+  const { phaserWxTransform, scanAssets } = await import('@aspect/rollup-plugin');
+  const nodeResolve = (await import('@rollup/plugin-node-resolve')).default;
+  const commonjs = (await import('@rollup/plugin-commonjs')).default;
+
+  const config = loadConfig();
+  const isH5 = options.target === 'h5';
+
+  if (options.cdn) {
+    config.cdn = options.cdn;
+  }
+
+  // 2a. Output directory — H5 uses dist-h5/
+  const outputDir = isH5 ? 'dist-h5' : config.output.dir;
+
+  console.log(`Building ${isH5 ? 'H5 browser' : 'WeChat Mini-Game'}...`);
+  console.log(`  Entry: ${config.entry}`);
+  console.log(`  Output: ${outputDir}`);
+  console.log(`  CDN: ${config.cdn}`);
+
+  // Resolve adapter path: walk up from __dirname to find monorepo root (pnpm-workspace.yaml),
+  // then use packages/adapter/src/index.js. This works regardless of where cwd is.
+  let adapterPath = '';
+  {
+    let dir = __dirname;
+    while (true) {
+      if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+        const candidate = path.join(dir, 'packages', 'adapter', 'src', 'index.js');
+        if (fs.existsSync(candidate)) {
+          adapterPath = candidate;
+        }
+        break;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+
+  const pluginOptions: Record<string, unknown> = {
+    outputDir,
+    assetsDir: config.assets.dir,
+    remoteDir: path.join(outputDir, 'remote'),
+    adapterPath,
+    orientation: config.orientation,
+    appid: config.appid,
+    cdnBase: config.cdn,
+    sizeThreshold: config.assets.remoteSizeThreshold,
+    remoteAssetsDir: config.assets.remoteAssetsDir || '',
+    target: isH5 ? 'h5' : 'wx',
   };
 
-  // --- Main bundle build (game-bundle.js + phaser-engine) ---
-  const mainBundle = await rollup(rollupConfig);
-  const { output: mainChunks } = await mainBundle.generate({
-    dir: config.output.dir,
-    format: 'cjs' as const,
-    manualChunks: {
-      'phaser-engine': ['phaser'],
-    },
-    chunkFileNames: '[name].js',
-    entryFileNames: 'game-bundle.js',
-    intro: introCode,
-    strict: false,
-  });
-  await mainBundle.close();
+  // 2b. Skip adapter bundling for H5
+  if (!isH5 && adapterPath && fs.existsSync(adapterPath)) {
+    const adapterBundle = await rollup({
+      input: adapterPath,
+      plugins: [nodeResolve(), commonjs()],
+    });
+    const adapterOutput = await adapterBundle.generate({
+      format: 'cjs' as const,
+      exports: 'named' as const,
+    });
+    await adapterBundle.close();
+    const adapterCode = adapterOutput.output[0].code;
+    // Write standalone adapter file
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(outputDir, 'phaser-wx-adapter.js'),
+      adapterCode,
+      'utf-8'
+    );
+  }
 
-  // Write chunks, minify phaser-engine with esbuild → engine/ subpackage
-  const { transform: esbuildTransform } = await import('esbuild');
-  for (const chunk of mainChunks) {
-    if (chunk.type !== 'chunk') continue;
-    let code = chunk.code;
-    let fileName = chunk.fileName;
+  // 2c. Intro code — branch by target
+  const introCode = isH5 ? buildH5Intro() : buildWxIntro();
 
-    if (chunk.name === 'phaser-engine') {
-      console.log(`  Minifying Phaser engine with esbuild...`);
-      const minified = await esbuildTransform(code, { minify: true, target: 'es2015' });
-      code = minified.code;
-      fileName = 'engine/phaser-engine.min.js';
-    } else {
-      // Rewrite cross-chunk require to point at the engine subpackage location.
-      // Rollup generates require('./phaser-engine.js') but we moved it to engine/.
-      code = code.replace(
-        /require\(['"]\.\/phaser-engine\.js['"]\)/g,
-        "require('engine/phaser-engine.min.js')"
-      );
-      // Expose Phaser globally so scene subpackages can access it.
-      // game-bundle.js resolves Phaser through the engine chunk's helper functions;
-      // scene subpackages (built separately) cannot re-derive it the same way.
-      if (chunk.isEntry) {
-        code += '\nif (typeof GameGlobal !== "undefined" && typeof Phaser !== "undefined") { GameGlobal.Phaser = Phaser; }\n';
+  // Pass subpackages config to the plugin so it can generate correct game.json
+  pluginOptions.subpackages = config.subpackages;
+
+  if (isH5) {
+    // =====================================================
+    // 2d. H5 build path — single IIFE bundle
+    // =====================================================
+
+    // Generate temporary H5 entry that imports all subpackage scenes
+    const { tempEntryPath } = generateH5Entry(config.entry, config.subpackages);
+
+    try {
+      const rollupConfig = {
+        input: tempEntryPath,
+        plugins: [
+          nodeResolve({ browser: true }),
+          commonjs(),
+          phaserWxTransform(pluginOptions as any),
+        ],
+      };
+
+      const h5Bundle = await rollup(rollupConfig);
+      const { output: h5Chunks } = await h5Bundle.generate({
+        format: 'iife' as const,
+        name: 'PhaserGame',
+        entryFileNames: 'game.js',
+        intro: introCode,
+        strict: false,
+      });
+      await h5Bundle.close();
+
+      // Write output — single game.js, minified with esbuild
+      const { transform: esbuildTransform } = await import('esbuild');
+      fs.mkdirSync(outputDir, { recursive: true });
+      for (const chunk of h5Chunks) {
+        if (chunk.type !== 'chunk') continue;
+        console.log(`  Minifying H5 bundle with esbuild...`);
+        const minified = await esbuildTransform(chunk.code, { minify: true, target: 'es2015' });
+        fs.writeFileSync(path.join(outputDir, 'game.js'), minified.code, 'utf-8');
+      }
+    } finally {
+      // Clean up temporary entry file
+      if (fs.existsSync(tempEntryPath)) {
+        fs.unlinkSync(tempEntryPath);
       }
     }
 
-    const outPath = path.join(config.output.dir, fileName);
-    fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    fs.writeFileSync(outPath, code, 'utf-8');
-  }
+    // 2e. H5 skips subpackage builds entirely — all scenes are in game.js
 
-  // --- Scene subpackage builds ---
-  for (const sub of config.subpackages) {
-    console.log(`  Building subpackage: ${sub.name} (${sub.entry})`);
-    const sceneBundle = await rollup({
-      input: sub.entry,
-      external: ['phaser'], // Phaser is already loaded globally from engine subpackage
+  } else {
+    // =====================================================
+    // WX build path (existing logic)
+    // =====================================================
+
+    const rollupConfig = {
+      input: config.entry,
       plugins: [
         nodeResolve({ browser: true }),
         commonjs(),
+        phaserWxTransform(pluginOptions as any),
       ],
-    });
-    const outFile = path.join(config.output.dir, sub.root, sub.outputFile);
-    // Use generate() instead of write() so we can post-process the output
-    const { output: sceneChunks } = await sceneBundle.generate({
-      file: outFile,
+    };
+
+    // --- Main bundle build (game-bundle.js + phaser-engine) ---
+    const mainBundle = await rollup(rollupConfig);
+    const { output: mainChunks } = await mainBundle.generate({
+      dir: outputDir,
       format: 'cjs' as const,
+      manualChunks: {
+        'phaser-engine': ['phaser'],
+      },
+      chunkFileNames: '[name].js',
+      entryFileNames: 'game-bundle.js',
       intro: introCode,
       strict: false,
     });
-    await sceneBundle.close();
+    await mainBundle.close();
 
-    // Write scene chunks, replacing require('phaser') with GameGlobal.Phaser
-    // and fixing cross-subpackage require paths (make them relative from this subpackage)
-    for (const sceneChunk of sceneChunks) {
-      if (sceneChunk.type !== 'chunk') continue;
-      let sceneCode = sceneChunk.code;
-      // Replace external phaser require with global reference.
-      sceneCode = sceneCode.replace(
-        /require\(['"]phaser['"]\)/g,
-        'GameGlobal.Phaser'
-      );
-      // Fix cross-subpackage require paths.
-      // Source code uses root-relative paths like require('game-play/game-scene.js'),
-      // but in WeChat require() resolves relative to the current file.
-      // Since this file is inside sub.root (e.g. 'menu/'), we need '../' prefix.
-      for (const otherSub of config.subpackages) {
-        if (otherSub.name === sub.name) continue;
-        const rootPrefix = otherSub.root.replace(/\/$/, '');
-        // Match require('game-play/...') and rewrite to require('../game-play/...')
-        const pattern = new RegExp(
-          `require\\(['"]${rootPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`,
-          'g'
+    // Write chunks, minify phaser-engine with esbuild → engine/ subpackage
+    const { transform: esbuildTransform } = await import('esbuild');
+    for (const chunk of mainChunks) {
+      if (chunk.type !== 'chunk') continue;
+      let code = chunk.code;
+      let fileName = chunk.fileName;
+
+      if (chunk.name === 'phaser-engine') {
+        console.log(`  Minifying Phaser engine with esbuild...`);
+        const minified = await esbuildTransform(code, { minify: true, target: 'es2015' });
+        code = minified.code;
+        fileName = 'engine/phaser-engine.min.js';
+      } else {
+        // Rewrite cross-chunk require to point at the engine subpackage location.
+        code = code.replace(
+          /require\(['"]\.\/phaser-engine\.js['"]\)/g,
+          "require('engine/phaser-engine.min.js')"
         );
-        sceneCode = sceneCode.replace(pattern, `require('../${rootPrefix}/`);
+        // Expose Phaser globally so scene subpackages can access it.
+        if (chunk.isEntry) {
+          code += '\nif (typeof GameGlobal !== "undefined" && typeof Phaser !== "undefined") { GameGlobal.Phaser = Phaser; }\n';
+        }
       }
-      fs.mkdirSync(path.dirname(outFile), { recursive: true });
-      fs.writeFileSync(outFile, sceneCode, 'utf-8');
+
+      const outPath = path.join(outputDir, fileName);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, code, 'utf-8');
     }
 
-    // Scan scene source for asset references (e.g. this.load.image/audio calls)
-    // and copy local assets into the subpackage directory (not root) so they
-    // don't count against main package size. Also rewrite asset paths in the
-    // built JS to point at the subpackage-local copy.
-    const sceneSource = fs.readFileSync(sub.entry, 'utf-8');
-    const sceneAssetRefs = scanAssets(sceneSource);
-    const assetPathRewrites: Array<{ original: string; rewritten: string }> = [];
+    // --- Scene subpackage builds ---
+    for (const sub of config.subpackages) {
+      console.log(`  Building subpackage: ${sub.name} (${sub.entry})`);
+      const sceneBundle = await rollup({
+        input: sub.entry,
+        external: ['phaser'], // Phaser is already loaded globally from engine subpackage
+        plugins: [
+          nodeResolve({ browser: true }),
+          commonjs(),
+        ],
+      });
+      const outFile = path.join(outputDir, sub.root, sub.outputFile);
+      // Use generate() instead of write() so we can post-process the output
+      const { output: sceneChunks } = await sceneBundle.generate({
+        file: outFile,
+        format: 'cjs' as const,
+        intro: introCode,
+        strict: false,
+      });
+      await sceneBundle.close();
 
-    for (const ref of sceneAssetRefs) {
-      // Skip remote-assets — they are loaded from CDN, not bundled
-      if (ref.path.startsWith('remote-assets/')) continue;
-
-      // Resolve source file
-      let srcPath = path.join(path.dirname(config.assets.dir), ref.path);
-      if (!fs.existsSync(srcPath)) {
-        srcPath = path.join(config.assets.dir, ref.path);
+      // Write scene chunks, replacing require('phaser') with GameGlobal.Phaser
+      for (const sceneChunk of sceneChunks) {
+        if (sceneChunk.type !== 'chunk') continue;
+        let sceneCode = sceneChunk.code;
+        sceneCode = sceneCode.replace(
+          /require\(['"]phaser['"]\)/g,
+          'GameGlobal.Phaser'
+        );
+        // Fix cross-subpackage require paths.
+        for (const otherSub of config.subpackages) {
+          if (otherSub.name === sub.name) continue;
+          const rootPrefix = otherSub.root.replace(/\/$/, '');
+          const pattern = new RegExp(
+            `require\\(['"]${rootPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`,
+            'g'
+          );
+          sceneCode = sceneCode.replace(pattern, `require('../${rootPrefix}/`);
+        }
+        fs.mkdirSync(path.dirname(outFile), { recursive: true });
+        fs.writeFileSync(outFile, sceneCode, 'utf-8');
       }
-      if (!fs.existsSync(srcPath)) continue;
 
-      // Copy to subpackage directory: e.g. dist-wx/game-play/assets/images/ball.png
-      const destPath = path.join(config.output.dir, sub.root, ref.path);
-      fs.mkdirSync(path.dirname(destPath), { recursive: true });
-      fs.copyFileSync(srcPath, destPath);
+      // Scan scene source for asset references and copy local assets into subpackage
+      const sceneSource = fs.readFileSync(sub.entry, 'utf-8');
+      const sceneAssetRefs = scanAssets(sceneSource);
+      const assetPathRewrites: Array<{ original: string; rewritten: string }> = [];
 
-      // Record rewrite: 'assets/images/ball.png' → 'game-play/assets/images/ball.png'
-      const rewrittenPath = sub.root + ref.path;
-      if (rewrittenPath !== ref.path) {
-        assetPathRewrites.push({ original: ref.path, rewritten: rewrittenPath });
+      for (const ref of sceneAssetRefs) {
+        if (ref.path.startsWith('remote-assets/')) continue;
+
+        let srcPath = path.join(path.dirname(config.assets.dir), ref.path);
+        if (!fs.existsSync(srcPath)) {
+          srcPath = path.join(config.assets.dir, ref.path);
+        }
+        if (!fs.existsSync(srcPath)) continue;
+
+        const destPath = path.join(outputDir, sub.root, ref.path);
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        fs.copyFileSync(srcPath, destPath);
+
+        const rewrittenPath = sub.root + ref.path;
+        if (rewrittenPath !== ref.path) {
+          assetPathRewrites.push({ original: ref.path, rewritten: rewrittenPath });
+        }
       }
-    }
 
-    // Rewrite asset paths in the built scene JS
-    if (assetPathRewrites.length > 0) {
-      let updatedCode = fs.readFileSync(outFile, 'utf-8');
-      for (const { original, rewritten } of assetPathRewrites) {
-        // Replace string literals: 'assets/...' or "assets/..."
-        updatedCode = updatedCode.split(original).join(rewritten);
+      if (assetPathRewrites.length > 0) {
+        let updatedCode = fs.readFileSync(outFile, 'utf-8');
+        for (const { original, rewritten } of assetPathRewrites) {
+          updatedCode = updatedCode.split(original).join(rewritten);
+        }
+        fs.writeFileSync(outFile, updatedCode, 'utf-8');
       }
-      fs.writeFileSync(outFile, updatedCode, 'utf-8');
     }
   }
 
-  // Post-build size check (exclude 'remote' and subpackage directories)
-  const excludeDirs = ['remote', 'engine'];
-  for (const sub of config.subpackages) {
-    excludeDirs.push(sub.root.replace(/\/$/, ''));
-  }
-  const localFiles = walkDir(config.output.dir, excludeDirs);
-  const totalSize = localFiles.reduce((sum, f) => sum + f.size, 0);
-
+  // 2f. Asset handling and size check
   // Count remote assets from manifest
   let remoteAssetCount = 0;
-  const manifestPath = path.join(config.output.dir, 'asset-manifest.json');
+  const manifestPath = path.join(outputDir, 'asset-manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
@@ -363,22 +523,41 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
     }
   }
 
-  if (totalSize > SIZE_LIMIT_ERROR) {
-    console.error(`\n❌ Error: Package size ${formatSize(totalSize)} exceeds 20MB limit!`);
-    console.error(`\nFile size breakdown:`);
-    for (const file of localFiles.sort((a, b) => b.size - a.size)) {
-      console.error(`  ${formatSize(file.size).padStart(10)}  ${path.relative(config.output.dir, file.path)}`);
-    }
-    console.error(`\nTotal: ${formatSize(totalSize)} / 20MB`);
-    process.exit(1);
-  } else if (totalSize > SIZE_LIMIT_WARN) {
-    console.warn(`\n⚠️  Warning: Package size ${formatSize(totalSize)} is approaching the 20MB limit.`);
-    console.warn(`  Consider moving more assets to CDN.`);
-  } else {
-    console.log(`\n✅ Build complete!`);
+  if (isH5) {
+    // H5: no 20MB limit check, just output build summary
+    const localFiles = walkDir(outputDir);
+    const totalSize = localFiles.reduce((sum, f) => sum + f.size, 0);
+    console.log(`\n✅ H5 build complete!`);
+    console.log(`  Output: ${outputDir}/`);
     console.log(`  Total size: ${formatSize(totalSize)}`);
     console.log(`  Local files: ${localFiles.length}`);
     console.log(`  Remote assets: ${remoteAssetCount}`);
+  } else {
+    // WX: Post-build size check (exclude 'remote' and subpackage directories)
+    const excludeDirs = ['remote', 'engine'];
+    for (const sub of config.subpackages) {
+      excludeDirs.push(sub.root.replace(/\/$/, ''));
+    }
+    const localFiles = walkDir(outputDir, excludeDirs);
+    const totalSize = localFiles.reduce((sum, f) => sum + f.size, 0);
+
+    if (totalSize > SIZE_LIMIT_ERROR) {
+      console.error(`\n❌ Error: Package size ${formatSize(totalSize)} exceeds 20MB limit!`);
+      console.error(`\nFile size breakdown:`);
+      for (const file of localFiles.sort((a, b) => b.size - a.size)) {
+        console.error(`  ${formatSize(file.size).padStart(10)}  ${path.relative(outputDir, file.path)}`);
+      }
+      console.error(`\nTotal: ${formatSize(totalSize)} / 20MB`);
+      process.exit(1);
+    } else if (totalSize > SIZE_LIMIT_WARN) {
+      console.warn(`\n⚠️  Warning: Package size ${formatSize(totalSize)} is approaching the 20MB limit.`);
+      console.warn(`  Consider moving more assets to CDN.`);
+    } else {
+      console.log(`\n✅ Build complete!`);
+      console.log(`  Total size: ${formatSize(totalSize)}`);
+      console.log(`  Local files: ${localFiles.length}`);
+      console.log(`  Remote assets: ${remoteAssetCount}`);
+    }
   }
 
   // Remind user to upload remote assets to CDN

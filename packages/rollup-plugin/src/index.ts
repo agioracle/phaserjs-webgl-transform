@@ -4,6 +4,7 @@ import { scanAssets, type AssetReference } from './asset-pipeline/scanner';
 import { splitAssets } from './asset-pipeline/splitter';
 import { generateManifest } from './asset-pipeline/manifest';
 import { generateWxProject } from './output/wx-project';
+import { generateH5Project } from './output/h5-project';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -28,6 +29,8 @@ export interface PhaserWxTransformOptions {
   remoteAssetsDir?: string;
   /** Scene subpackages configuration */
   subpackages?: { name: string; root: string }[];
+  /** Build target: 'wx' for WeChat Mini-Game, 'h5' for browser */
+  target?: 'wx' | 'h5';
 }
 
 const TRANSFORMABLE_EXTENSIONS = /\.(js|ts|jsx|tsx)$/;
@@ -47,6 +50,7 @@ export function phaserWxTransform(options: PhaserWxTransformOptions): Plugin {
     sizeThreshold = 1024 * 1024,
     remoteAssetsDir = '',
     subpackages = [],
+    target = 'wx',
   } = options;
 
   const collectedAssetRefs: AssetReference[] = [];
@@ -60,7 +64,7 @@ export function phaserWxTransform(options: PhaserWxTransformOptions): Plugin {
       }
 
       // Run game config transform
-      const configResult = transformGameConfig(code);
+      const configResult = transformGameConfig(code, target);
       for (const warning of configResult.warnings) {
         this.warn(warning);
       }
@@ -93,34 +97,40 @@ export function phaserWxTransform(options: PhaserWxTransformOptions): Plugin {
 
         generateManifest(splitResult, cdnBase, outputDir);
 
-        // Calculate total local size for warnings
-        let totalLocalSize = 0;
-        for (const entry of splitResult.local) {
-          totalLocalSize += entry.size;
-        }
+        // Calculate total local size for warnings (wx only)
+        if (target !== 'h5') {
+          let totalLocalSize = 0;
+          for (const entry of splitResult.local) {
+            totalLocalSize += entry.size;
+          }
 
-        if (totalLocalSize > SIZE_ERROR_THRESHOLD) {
-          this.error(
-            `Total local asset size (${(totalLocalSize / 1024 / 1024).toFixed(1)}MB) exceeds WeChat Mini-Game 20MB limit. Move large assets to CDN by lowering sizeThreshold.`
-          );
-        } else if (totalLocalSize > SIZE_WARN_THRESHOLD) {
-          this.warn(
-            `Total local asset size (${(totalLocalSize / 1024 / 1024).toFixed(1)}MB) exceeds 16MB. Consider moving large assets to CDN.`
-          );
+          if (totalLocalSize > SIZE_ERROR_THRESHOLD) {
+            this.error(
+              `Total local asset size (${(totalLocalSize / 1024 / 1024).toFixed(1)}MB) exceeds WeChat Mini-Game 20MB limit. Move large assets to CDN by lowering sizeThreshold.`
+            );
+          } else if (totalLocalSize > SIZE_WARN_THRESHOLD) {
+            this.warn(
+              `Total local asset size (${(totalLocalSize / 1024 / 1024).toFixed(1)}MB) exceeds 16MB. Consider moving large assets to CDN.`
+            );
+          }
         }
       } else {
         // No assets found, still generate an empty manifest
         generateManifest({ local: [], remote: [] }, cdnBase, outputDir);
       }
 
-      // Generate WeChat project structure
-      generateWxProject({
-        outputDir,
-        adapterPath,
-        orientation,
-        appid,
-        subpackages,
-      });
+      // Generate project structure based on target
+      if (target === 'h5') {
+        generateH5Project({ outputDir });
+      } else {
+        generateWxProject({
+          outputDir,
+          adapterPath,
+          orientation,
+          appid,
+          subpackages,
+        });
+      }
     },
   };
 }
@@ -129,8 +139,10 @@ export type { AssetReference } from './asset-pipeline/scanner';
 export type { SplitResult, AssetEntry } from './asset-pipeline/splitter';
 export type { AssetManifest } from './asset-pipeline/manifest';
 export type { WxProjectConfig } from './output/wx-project';
+export type { H5ProjectConfig } from './output/h5-project';
 export { transformGameConfig } from './transforms/game-config';
 export { scanAssets } from './asset-pipeline/scanner';
 export { splitAssets } from './asset-pipeline/splitter';
 export { generateManifest } from './asset-pipeline/manifest';
 export { generateWxProject } from './output/wx-project';
+export { generateH5Project } from './output/h5-project';

@@ -73,6 +73,22 @@ function buildDefaultScale(): t.ObjectProperty {
   );
 }
 
+function buildH5Scale(): t.ObjectProperty {
+  return t.objectProperty(
+    t.identifier('scale'),
+    t.objectExpression([
+      t.objectProperty(
+        t.identifier('mode'),
+        buildMemberExpression('Phaser', 'Scale', 'FIT')
+      ),
+      t.objectProperty(
+        t.identifier('autoCenter'),
+        buildMemberExpression('Phaser', 'Scale', 'CENTER_BOTH')
+      ),
+    ])
+  );
+}
+
 function buildDefaultParent(): t.ObjectProperty {
   return t.objectProperty(t.identifier('parent'), t.nullLiteral());
 }
@@ -231,6 +247,62 @@ function mergeObjectProperties(
   }
 }
 
+/**
+ * Merge H5-specific properties into the Phaser game config.
+ * Injects scale: { mode: FIT, autoCenter: CENTER_BOTH } for responsive browser display.
+ * Does NOT touch canvas, parent, audio, loader — browser defaults work fine.
+ */
+function mergeH5Properties(
+  objExpr: t.ObjectExpression,
+): void {
+  const existingProps = new Map<string, t.ObjectProperty>();
+
+  for (const prop of objExpr.properties) {
+    if (t.isObjectProperty(prop)) {
+      const name = getPropertyName(prop);
+      if (name) {
+        existingProps.set(name, prop);
+      }
+    }
+  }
+
+  // Handle 'scale' property — inject FIT + CENTER_BOTH for responsive browser display
+  if (existingProps.has('scale')) {
+    const scaleProp = existingProps.get('scale')!;
+    if (t.isObjectExpression(scaleProp.value)) {
+      const scaleProps = new Map<string, t.ObjectProperty>();
+      for (const p of scaleProp.value.properties) {
+        if (t.isObjectProperty(p)) {
+          const n = getPropertyName(p);
+          if (n) scaleProps.set(n, p);
+        }
+      }
+      if (scaleProps.has('mode')) {
+        scaleProps.get('mode')!.value = buildMemberExpression('Phaser', 'Scale', 'FIT');
+      } else {
+        scaleProp.value.properties.push(
+          t.objectProperty(
+            t.identifier('mode'),
+            buildMemberExpression('Phaser', 'Scale', 'FIT')
+          )
+        );
+      }
+      if (scaleProps.has('autoCenter')) {
+        scaleProps.get('autoCenter')!.value = buildMemberExpression('Phaser', 'Scale', 'CENTER_BOTH');
+      } else {
+        scaleProp.value.properties.push(
+          t.objectProperty(
+            t.identifier('autoCenter'),
+            buildMemberExpression('Phaser', 'Scale', 'CENTER_BOTH')
+          )
+        );
+      }
+    }
+  } else {
+    objExpr.properties.push(buildH5Scale());
+  }
+}
+
 function isPhaserGameNew(node: t.NewExpression): boolean {
   return (
     t.isMemberExpression(node.callee) &&
@@ -241,8 +313,9 @@ function isPhaserGameNew(node: t.NewExpression): boolean {
   );
 }
 
-export function transformGameConfig(code: string): TransformResult {
+export function transformGameConfig(code: string, target: 'wx' | 'h5' = 'wx'): TransformResult {
   const warnings: string[] = [];
+  const isH5 = target === 'h5';
 
   let ast: ReturnType<typeof parse>;
   try {
@@ -261,41 +334,68 @@ export function transformGameConfig(code: string): TransformResult {
     NewExpression(path: NodePath<t.NewExpression>) {
       if (!isPhaserGameNew(path.node)) return;
 
-      const args = path.node.arguments;
-      if (args.length === 0) {
-        const configObj = t.objectExpression([]);
-        mergeObjectProperties(configObj, warnings);
-        path.node.arguments = [configObj];
-        modified = true;
-      } else {
-        const firstArg = args[0];
-
-        if (t.isObjectExpression(firstArg)) {
-          mergeObjectProperties(firstArg, warnings);
+      // H5 target: skip WeChat-specific config transforms (GameGlobal.__wxCanvas,
+      // forced scale/audio/loader overrides). Only inject H5 scale and __initRemoteAssetLoader.
+      if (isH5) {
+        const args = path.node.arguments;
+        if (args.length === 0) {
+          const configObj = t.objectExpression([]);
+          mergeH5Properties(configObj);
+          path.node.arguments = [configObj];
           modified = true;
-        } else if (t.isIdentifier(firstArg)) {
-          const varName = firstArg.name;
-          const binding = path.scope.getBinding(varName);
+        } else {
+          const firstArg = args[0];
+          if (t.isObjectExpression(firstArg)) {
+            mergeH5Properties(firstArg);
+            modified = true;
+          } else if (t.isIdentifier(firstArg)) {
+            const binding = path.scope.getBinding(firstArg.name);
+            if (binding && binding.path.isVariableDeclarator()) {
+              const init = binding.path.node.init;
+              if (t.isObjectExpression(init)) {
+                mergeH5Properties(init);
+                modified = true;
+              }
+            }
+          }
+        }
+      } else {
+        const args = path.node.arguments;
+        if (args.length === 0) {
+          const configObj = t.objectExpression([]);
+          mergeObjectProperties(configObj, warnings);
+          path.node.arguments = [configObj];
+          modified = true;
+        } else {
+          const firstArg = args[0];
 
-          if (binding && binding.path.isVariableDeclarator()) {
-            const init = binding.path.node.init;
-            if (t.isObjectExpression(init)) {
-              mergeObjectProperties(init, warnings);
-              modified = true;
+          if (t.isObjectExpression(firstArg)) {
+            mergeObjectProperties(firstArg, warnings);
+            modified = true;
+          } else if (t.isIdentifier(firstArg)) {
+            const varName = firstArg.name;
+            const binding = path.scope.getBinding(varName);
+
+            if (binding && binding.path.isVariableDeclarator()) {
+              const init = binding.path.node.init;
+              if (t.isObjectExpression(init)) {
+                mergeObjectProperties(init, warnings);
+                modified = true;
+              } else {
+                warnings.push(
+                  `Could not resolve config variable "${varName}": initializer is not an object literal.`
+                );
+              }
             } else {
               warnings.push(
-                `Could not resolve config variable "${varName}": initializer is not an object literal.`
+                `Could not resolve config variable "${varName}".`
               );
             }
           } else {
             warnings.push(
-              `Could not resolve config variable "${varName}".`
+              'Could not resolve config argument: not an object literal or identifier.'
             );
           }
-        } else {
-          warnings.push(
-            'Could not resolve config argument: not an object literal or identifier.'
-          );
         }
       }
 
