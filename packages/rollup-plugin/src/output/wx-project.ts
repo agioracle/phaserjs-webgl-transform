@@ -26,11 +26,25 @@ export function generateWxProject(config: WxProjectConfig): void {
   ];
 
   // game.js
-  // Stage 1: Show "Made with Phaser" splash with fade-in animation using WebGL
+  // Stage 1: Show "Made with PhaserJS" splash with fade-in animation using WebGL
   //          (must use WebGL on the main canvas so Phaser can reuse it later).
   //          Text is rendered on an off-screen 2D canvas, then drawn as a WebGL texture.
   // Stage 2: After engine loads + splash finishes, require adapter + engine + game-bundle.
   const gameJs = `// --- Stage 1: Splash screen (WebGL) + engine download ---
+// Ensure timer globals are available on iOS real devices where they may not
+// be enumerable on GameGlobal but exist in the JavaScript global scope (globalThis).
+(function() {
+  var _g = typeof GameGlobal !== 'undefined' ? GameGlobal : {};
+  var _gt = typeof globalThis !== 'undefined' ? globalThis : {};
+  var _fns = ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+              'requestAnimationFrame', 'cancelAnimationFrame'];
+  for (var i = 0; i < _fns.length; i++) {
+    if (typeof _g[_fns[i]] === 'undefined' && typeof _gt[_fns[i]] !== 'undefined') {
+      _g[_fns[i]] = _gt[_fns[i]];
+    }
+  }
+})();
+
 var _canvas = wx.createCanvas();
 GameGlobal.__wxCanvas = _canvas;
 var _info = wx.getSystemInfoSync();
@@ -45,11 +59,10 @@ var _gl = _canvas.getContext('webgl', { alpha: false });
 if (!_gl) _gl = _canvas.getContext('experimental-webgl', { alpha: false });
 
 var _engineReady = false;
+var _splashStart = Date.now();
+var _minSplashDuration = 2000;
 
 function _boot() {
-  if (!_engineReady) return;
-  // Stop splash animation loop
-  if (_splashRafId) cancelAnimationFrame(_splashRafId);
   // Clean up WebGL state before Phaser takes over
   _gl.deleteTexture(_tex);
   _gl.deleteBuffer(_buf);
@@ -112,19 +125,114 @@ _gl.vertexAttribPointer(_aPos, 2, _gl.FLOAT, false, 16, 0);
 _gl.enableVertexAttribArray(_aUv);
 _gl.vertexAttribPointer(_aUv, 2, _gl.FLOAT, false, 16, 8);
 
-// --- Render text to off-screen 2D canvas ---
+// --- Off-screen 2D canvas for solar system animation ---
 var _offCanvas = wx.createCanvas();
 _offCanvas.width = _canvas.width;
 _offCanvas.height = _canvas.height;
 var _ctx2d = _offCanvas.getContext('2d');
-_ctx2d.fillStyle = '#000000';
-_ctx2d.fillRect(0, 0, _offCanvas.width, _offCanvas.height);
-_ctx2d.fillStyle = '#ffffff';
 var _fontSize = Math.round(_w * _dpr * 0.05);
-_ctx2d.font = 'bold ' + _fontSize + 'px Arial';
-_ctx2d.textAlign = 'center';
-_ctx2d.textBaseline = 'middle';
-_ctx2d.fillText('Made with Phaser', _offCanvas.width / 2, _offCanvas.height / 2);
+var _cw = _offCanvas.width;
+var _ch = _offCanvas.height;
+
+// Solar system parameters
+var _sunX = _cw / 2;
+var _sunY = _ch * 0.38;
+var _sunRadius = Math.round(_w * _dpr * 0.045);
+var _planets = [
+  { color: '#b0b0b0', radius: _sunRadius * 0.15, orbit: _sunRadius * 2.0,  orbitY: 0.45, speed: 4.5,  angle: 0.0 },
+  { color: '#e8c44a', radius: _sunRadius * 0.25, orbit: _sunRadius * 2.8,  orbitY: 0.45, speed: 3.2,  angle: 1.0 },
+  { color: '#4a9fe8', radius: _sunRadius * 0.27, orbit: _sunRadius * 3.6,  orbitY: 0.45, speed: 2.5,  angle: 2.5 },
+  { color: '#e85a3a', radius: _sunRadius * 0.18, orbit: _sunRadius * 4.4,  orbitY: 0.45, speed: 2.0,  angle: 4.0 },
+  { color: '#c8905a', radius: _sunRadius * 0.40, orbit: _sunRadius * 5.6,  orbitY: 0.45, speed: 1.2,  angle: 5.2 },
+  { color: '#d4a847', radius: _sunRadius * 0.35, orbit: _sunRadius * 6.8,  orbitY: 0.45, speed: 0.8,  angle: 3.5, ring: true }
+];
+var _textY = _sunY + _sunRadius * 8.5;
+
+function _drawScene(now) {
+  var t = now / 1000;
+  // Clear
+  _ctx2d.fillStyle = '#232C37';
+  _ctx2d.fillRect(0, 0, _cw, _ch);
+
+  // Draw orbit lines
+  _ctx2d.strokeStyle = 'rgba(255,255,255,0.08)';
+  _ctx2d.lineWidth = 1;
+  for (var i = 0; i < _planets.length; i++) {
+    var p = _planets[i];
+    _ctx2d.beginPath();
+    _ctx2d.ellipse(_sunX, _sunY, p.orbit, p.orbit * p.orbitY, 0, 0, Math.PI * 2);
+    _ctx2d.stroke();
+  }
+
+  // Collect planets with their z-order for proper layering
+  var _drawList = [];
+  for (var i = 0; i < _planets.length; i++) {
+    var p = _planets[i];
+    var a = p.angle + t * p.speed;
+    var px = _sunX + Math.cos(a) * p.orbit;
+    var py = _sunY + Math.sin(a) * p.orbit * p.orbitY;
+    _drawList.push({ p: p, x: px, y: py, z: Math.sin(a) });
+  }
+  // Sort: draw far planets first (behind sun), near planets last (in front)
+  _drawList.sort(function(a, b) { return a.z - b.z; });
+
+  // Draw planets behind the sun (z < 0)
+  for (var i = 0; i < _drawList.length; i++) {
+    if (_drawList[i].z >= 0) break;
+    _drawPlanet(_drawList[i]);
+  }
+
+  // Draw sun with glow
+  var _glowSize = _sunRadius * 2.5;
+  var _grd = _ctx2d.createRadialGradient(_sunX, _sunY, _sunRadius * 0.3, _sunX, _sunY, _glowSize);
+  _grd.addColorStop(0, 'rgba(255, 220, 60, 1.0)');
+  _grd.addColorStop(0.25, 'rgba(255, 180, 30, 0.8)');
+  _grd.addColorStop(0.5, 'rgba(255, 140, 0, 0.2)');
+  _grd.addColorStop(1, 'rgba(255, 100, 0, 0)');
+  _ctx2d.fillStyle = _grd;
+  _ctx2d.beginPath();
+  _ctx2d.arc(_sunX, _sunY, _glowSize, 0, Math.PI * 2);
+  _ctx2d.fill();
+  // Sun core
+  _ctx2d.fillStyle = '#ffdd44';
+  _ctx2d.beginPath();
+  _ctx2d.arc(_sunX, _sunY, _sunRadius, 0, Math.PI * 2);
+  _ctx2d.fill();
+
+  // Draw planets in front of the sun (z >= 0)
+  for (var i = 0; i < _drawList.length; i++) {
+    if (_drawList[i].z >= 0) _drawPlanet(_drawList[i]);
+  }
+
+  // Draw text with stroke outline
+  _ctx2d.font = 'bold ' + _fontSize + 'px Arial';
+  _ctx2d.textAlign = 'center';
+  _ctx2d.textBaseline = 'middle';
+  _ctx2d.lineWidth = Math.max(2, _fontSize * 0.08);
+  _ctx2d.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+  _ctx2d.strokeText('Made with PhaserJS', _cw / 2, _textY);
+  _ctx2d.fillStyle = '#ffffff';
+  _ctx2d.fillText('Made with PhaserJS', _cw / 2, _textY);
+}
+
+function _drawPlanet(item) {
+  var p = item.p;
+  _ctx2d.fillStyle = p.color;
+  _ctx2d.beginPath();
+  _ctx2d.arc(item.x, item.y, p.radius, 0, Math.PI * 2);
+  _ctx2d.fill();
+  // Saturn ring
+  if (p.ring) {
+    _ctx2d.strokeStyle = 'rgba(212, 168, 71, 0.6)';
+    _ctx2d.lineWidth = p.radius * 0.25;
+    _ctx2d.beginPath();
+    _ctx2d.ellipse(item.x, item.y, p.radius * 2.0, p.radius * 0.5, -0.3, 0, Math.PI * 2);
+    _ctx2d.stroke();
+  }
+}
+
+// Initial draw
+_drawScene(Date.now());
 
 // --- Upload as WebGL texture ---
 var _tex = _gl.createTexture();
@@ -143,7 +251,7 @@ _gl.blendFunc(_gl.SRC_ALPHA, _gl.ONE_MINUS_SRC_ALPHA);
 var _alpha = 0;
 var _phase = 0; // 0=fade-in, 1=breathing
 var _timer = 0;
-var _fadeInDuration = 1200;
+var _fadeInDuration = 1000;
 var _breathMin = 0.5;
 var _breathMax = 1.0;
 var _breathCycle = 2000; // one full breath cycle in ms
@@ -165,10 +273,21 @@ function _drawSplash() {
     _alpha = _breathMin + (_breathMax - _breathMin) * (0.5 + 0.5 * Math.cos(t * 2 * Math.PI));
   }
 
-  _gl.clearColor(0, 0, 0, 1);
+  // Re-draw solar system animation and re-upload texture
+  _drawScene(now);
+  _gl.bindTexture(_gl.TEXTURE_2D, _tex);
+  _gl.texImage2D(_gl.TEXTURE_2D, 0, _gl.RGBA, _gl.RGBA, _gl.UNSIGNED_BYTE, _offCanvas);
+
+  _gl.clearColor(0.137, 0.173, 0.216, 1);
   _gl.clear(_gl.COLOR_BUFFER_BIT);
   _gl.uniform1f(_uAlpha, _alpha);
   _gl.drawArrays(_gl.TRIANGLE_STRIP, 0, 4);
+
+  // Try to boot if engine is ready and min splash duration has passed
+  if (_engineReady && (Date.now() - _splashStart) >= _minSplashDuration) {
+    _boot();
+    return; // stop the animation loop — Phaser takes over
+  }
 
   _splashRafId = requestAnimationFrame(_drawSplash);
 }
@@ -178,7 +297,6 @@ wx.loadSubpackage({
   name: 'engine',
   success: function() {
     _engineReady = true;
-    _boot();
   },
   fail: function(err) {
     console.error('Failed to load engine subpackage:', err);

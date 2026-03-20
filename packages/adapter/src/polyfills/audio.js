@@ -1,3 +1,6 @@
+const _gScope = typeof GameGlobal !== 'undefined' ? GameGlobal : globalThis;
+const _safeSetTimeout = _gScope.setTimeout ? _gScope.setTimeout.bind(_gScope) : globalThis.setTimeout.bind(globalThis);
+
 const _audioListeners = Symbol('listeners');
 
 class WxAudio {
@@ -51,7 +54,7 @@ class WxAudio {
   load() {
     if (this._inner.src) {
       // Fire canplaythrough in next tick — InnerAudioContext loads on src set
-      setTimeout(() => this._emit('canplaythrough'), 0);
+      _safeSetTimeout(() => this._emit('canplaythrough'), 0);
     }
   }
 

@@ -1,3 +1,6 @@
+const _gScope = typeof GameGlobal !== 'undefined' ? GameGlobal : globalThis;
+const _safeSetTimeout = _gScope.setTimeout ? _gScope.setTimeout.bind(_gScope) : globalThis.setTimeout.bind(globalThis);
+
 export class AssetLoader {
   constructor(manifest, cache, config = {}) {
     this._manifest = manifest;
@@ -26,7 +29,7 @@ export class AssetLoader {
     const run = (left) => attempt().catch(err => {
       if (left <= 1) throw new Error(`Failed to download ${assetPath} after ${retries} attempts`);
       const delay = Math.pow(2, retries - left) * 1000;
-      return new Promise(r => setTimeout(r, delay)).then(() => run(left - 1));
+      return new Promise(r => _safeSetTimeout(r, delay)).then(() => run(left - 1));
     });
     return run(retries);
   }

@@ -62,13 +62,12 @@ function wrapGetContext(canvas, eagleWebGL) {
 }
 
 function addDomSupport(canvas) {
-  // Provide a style object that reports the actual canvas dimensions.
-  // Phaser's ScaleManager reads style.width/height to determine the
-  // display size; empty strings cause it to compute 0×0.
+  // Provide a style object that reports CSS pixel dimensions (not physical pixels).
+  // Phaser's ScaleManager reads style.width/height to determine the display size.
+  // Touch events from WeChat are in CSS pixels, so we must report CSS dimensions
+  // here for Phaser's coordinate mapping to work correctly.
   if (!canvas.style || canvas.style.width === '') {
-    const w = canvas.width || info.screenWidth;
-    const h = canvas.height || info.screenHeight;
-    canvas.style = { width: w + 'px', height: h + 'px' };
+    canvas.style = { width: info.screenWidth + 'px', height: info.screenHeight + 'px' };
   }
 
   // Phaser reads tagName to identify element type
@@ -89,16 +88,17 @@ function addDomSupport(canvas) {
     };
   }
 
-  // Phaser's ScaleManager reads getBoundingClientRect
+  // Phaser's ScaleManager reads getBoundingClientRect — must return CSS pixel
+  // dimensions so touch coordinate mapping works correctly on high-DPR devices.
   if (!canvas.getBoundingClientRect) {
     canvas.getBoundingClientRect = function() {
       return {
         x: 0, y: 0,
         top: 0, left: 0,
-        bottom: canvas.height || info.screenHeight,
-        right: canvas.width || info.screenWidth,
-        width: canvas.width || info.screenWidth,
-        height: canvas.height || info.screenHeight,
+        bottom: info.screenHeight,
+        right: info.screenWidth,
+        width: info.screenWidth,
+        height: info.screenHeight,
       };
     };
   }
@@ -123,16 +123,16 @@ function addDomSupport(canvas) {
   // Phaser may call focus on canvas
   if (!canvas.focus) canvas.focus = function() {};
 
-  // Phaser may read offsetWidth/offsetHeight
+  // Phaser may read offsetWidth/offsetHeight — CSS pixels
   if (canvas.offsetWidth === undefined) {
     Object.defineProperty(canvas, 'offsetWidth', {
-      get() { return canvas.width || info.screenWidth; },
+      get() { return info.screenWidth; },
       configurable: true,
     });
   }
   if (canvas.offsetHeight === undefined) {
     Object.defineProperty(canvas, 'offsetHeight', {
-      get() { return canvas.height || info.screenHeight; },
+      get() { return info.screenHeight; },
       configurable: true,
     });
   }
@@ -198,19 +198,29 @@ export function createPrimaryCanvas() {
   // If the adapter runs more than once (e.g. first via require() in game.js,
   // then inline in game-bundle.js), reuse the existing on-screen canvas
   // instead of creating a new off-screen one that overwrites it.
+  let canvas;
   if (typeof GameGlobal !== 'undefined' && GameGlobal.__wxCanvas) {
-    return GameGlobal.__wxCanvas;
+    canvas = GameGlobal.__wxCanvas;
+  } else {
+    canvas = wx.createCanvas();
   }
 
-  const canvas = wx.createCanvas();
-  addEventSupport(canvas);
-  // Eagerly create WebGL context on primary canvas to guarantee it's
-  // available — prevents '2d' context lock-out and attrs issues.
-  wrapGetContext(canvas, true);
-  addDomSupport(canvas);
-  // Bridge WeChat global touch events to canvas DOM events
-  bridgeTouchEvents(canvas);
-  GameGlobal.__wxCanvas = canvas;
+  // Apply patches idempotently — the canvas may have been pre-created by
+  // game.js (for splash screen) without DOM-like capabilities.
+  if (!canvas.__phaserPatched) {
+    addEventSupport(canvas);
+    // Eagerly create WebGL context on primary canvas to guarantee it's
+    // available — prevents '2d' context lock-out and attrs issues.
+    wrapGetContext(canvas, true);
+    addDomSupport(canvas);
+    // Bridge WeChat global touch events to canvas DOM events
+    bridgeTouchEvents(canvas);
+    canvas.__phaserPatched = true;
+  }
+
+  if (typeof GameGlobal !== 'undefined') {
+    GameGlobal.__wxCanvas = canvas;
+  }
   return canvas;
 }
 
