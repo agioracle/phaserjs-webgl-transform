@@ -63,10 +63,17 @@ var _splashStart = Date.now();
 var _minSplashDuration = 2000;
 
 function _boot() {
-  // Clean up WebGL state before Phaser takes over
+  // Clean up all WebGL state before Phaser takes over
+  _gl.disableVertexAttribArray(_aPos);
+  _gl.disableVertexAttribArray(_aUv);
   _gl.deleteTexture(_tex);
   _gl.deleteBuffer(_buf);
   _gl.deleteProgram(_prog);
+  _gl.deleteShader(_vs);
+  _gl.deleteShader(_fs);
+  _gl.useProgram(null);
+  _gl.bindBuffer(_gl.ARRAY_BUFFER, null);
+  _gl.bindTexture(_gl.TEXTURE_2D, null);
   GameGlobal.__adapterExports = require('./phaser-wx-adapter.js');
   if (typeof GameGlobal.__wxCustomAdapter !== 'undefined') {
     require('./phaser-wx-custom-adapter.js');
@@ -125,7 +132,7 @@ _gl.vertexAttribPointer(_aPos, 2, _gl.FLOAT, false, 16, 0);
 _gl.enableVertexAttribArray(_aUv);
 _gl.vertexAttribPointer(_aUv, 2, _gl.FLOAT, false, 16, 8);
 
-// --- Off-screen 2D canvas for solar system animation ---
+// --- Off-screen 2D canvas for pinwheel animation ---
 var _offCanvas = wx.createCanvas();
 _offCanvas.width = _canvas.width;
 _offCanvas.height = _canvas.height;
@@ -135,101 +142,70 @@ var _fontSize = Math.round(_shortSide * _dpr * 0.05);
 var _cw = _offCanvas.width;
 var _ch = _offCanvas.height;
 
-// Solar system parameters
-var _sunX = _cw / 2;
-var _sunY = _ch * 0.38;
-var _sunRadius = Math.round(_shortSide * _dpr * 0.045);
-var _planets = [
-  { color: '#b0b0b0', radius: _sunRadius * 0.15, orbit: _sunRadius * 2.0,  orbitY: 0.45, speed: 4.5,  angle: 0.0 },
-  { color: '#e8c44a', radius: _sunRadius * 0.25, orbit: _sunRadius * 2.8,  orbitY: 0.45, speed: 3.2,  angle: 1.0 },
-  { color: '#4a9fe8', radius: _sunRadius * 0.27, orbit: _sunRadius * 3.6,  orbitY: 0.45, speed: 2.5,  angle: 2.5 },
-  { color: '#e85a3a', radius: _sunRadius * 0.18, orbit: _sunRadius * 4.4,  orbitY: 0.45, speed: 2.0,  angle: 4.0 },
-  { color: '#c8905a', radius: _sunRadius * 0.40, orbit: _sunRadius * 5.6,  orbitY: 0.45, speed: 1.2,  angle: 5.2 },
-  { color: '#d4a847', radius: _sunRadius * 0.35, orbit: _sunRadius * 6.8,  orbitY: 0.45, speed: 0.8,  angle: 3.5, ring: true }
-];
-var _textY = _sunY + _sunRadius * 8.5;
-
+var _sceneStartTime = Date.now();
 function _drawScene(now) {
-  var t = now / 1000;
-  // Clear
-  _ctx2d.fillStyle = '#232C37';
+  var t = (now - _sceneStartTime) / 1000;
+  _ctx2d.fillStyle = '#1a1a2e';
   _ctx2d.fillRect(0, 0, _cw, _ch);
 
-  // Draw orbit lines
-  _ctx2d.strokeStyle = 'rgba(255,255,255,0.08)';
-  _ctx2d.lineWidth = 1;
-  for (var i = 0; i < _planets.length; i++) {
-    var p = _planets[i];
+  // Draw rotating cartoon pinwheel with 6 blades
+  var cx = _cw / 2;
+  var cy = _ch * 0.38;
+  var R = _shortSide * _dpr * 0.18;
+  var angle = t * 1.5;
+  var blades = 6;
+  var colors = ['#e94560', '#4ecdc4', '#ffe66d', '#a55eea', '#45b7d1', '#ff6348'];
+
+  // Stick (drawn first so it appears behind the blades)
+  _ctx2d.strokeStyle = '#b0845a';
+  _ctx2d.lineWidth = 3 * _dpr;
+  _ctx2d.lineCap = 'round';
+  _ctx2d.beginPath();
+  _ctx2d.moveTo(cx, cy + R * 0.1);
+  _ctx2d.lineTo(cx + R * 0.15, cy + R * 1.2);
+  _ctx2d.stroke();
+
+  _ctx2d.save();
+  _ctx2d.translate(cx, cy);
+  _ctx2d.rotate(angle);
+
+  for (var i = 0; i < blades; i++) {
+    var a = (i / blades) * Math.PI * 2;
+    _ctx2d.save();
+    _ctx2d.rotate(a);
     _ctx2d.beginPath();
-    _ctx2d.ellipse(_sunX, _sunY, p.orbit, p.orbit * p.orbitY, 0, 0, Math.PI * 2);
+    _ctx2d.moveTo(0, 0);
+    _ctx2d.quadraticCurveTo(R * 0.5, -R * 0.35, R * 0.85, -R * 0.08);
+    _ctx2d.quadraticCurveTo(R * 0.5, R * 0.12, 0, 0);
+    _ctx2d.fillStyle = colors[i % colors.length];
+    _ctx2d.fill();
+    _ctx2d.strokeStyle = 'rgba(255,255,255,0.5)';
+    _ctx2d.lineWidth = 1 * _dpr;
     _ctx2d.stroke();
+    _ctx2d.restore();
   }
 
-  // Collect planets with their z-order for proper layering
-  var _drawList = [];
-  for (var i = 0; i < _planets.length; i++) {
-    var p = _planets[i];
-    var a = p.angle + t * p.speed;
-    var px = _sunX + Math.cos(a) * p.orbit;
-    var py = _sunY + Math.sin(a) * p.orbit * p.orbitY;
-    _drawList.push({ p: p, x: px, y: py, z: Math.sin(a) });
-  }
-  // Sort: draw far planets first (behind sun), near planets last (in front)
-  _drawList.sort(function(a, b) { return a.z - b.z; });
-
-  // Draw planets behind the sun (z < 0)
-  for (var i = 0; i < _drawList.length; i++) {
-    if (_drawList[i].z >= 0) break;
-    _drawPlanet(_drawList[i]);
-  }
-
-  // Draw sun with glow
-  var _glowSize = _sunRadius * 2.5;
-  var _grd = _ctx2d.createRadialGradient(_sunX, _sunY, _sunRadius * 0.3, _sunX, _sunY, _glowSize);
-  _grd.addColorStop(0, 'rgba(255, 220, 60, 1.0)');
-  _grd.addColorStop(0.25, 'rgba(255, 180, 30, 0.8)');
-  _grd.addColorStop(0.5, 'rgba(255, 140, 0, 0.2)');
-  _grd.addColorStop(1, 'rgba(255, 100, 0, 0)');
-  _ctx2d.fillStyle = _grd;
+  // Center hub
   _ctx2d.beginPath();
-  _ctx2d.arc(_sunX, _sunY, _glowSize, 0, Math.PI * 2);
+  _ctx2d.arc(0, 0, R * 0.12, 0, Math.PI * 2);
+  _ctx2d.fillStyle = '#ffffff';
   _ctx2d.fill();
-  // Sun core
-  _ctx2d.fillStyle = '#ffdd44';
+  _ctx2d.strokeStyle = '#cccccc';
+  _ctx2d.lineWidth = 2 * _dpr;
+  _ctx2d.stroke();
   _ctx2d.beginPath();
-  _ctx2d.arc(_sunX, _sunY, _sunRadius, 0, Math.PI * 2);
+  _ctx2d.arc(0, 0, R * 0.05, 0, Math.PI * 2);
+  _ctx2d.fillStyle = '#e94560';
   _ctx2d.fill();
 
-  // Draw planets in front of the sun (z >= 0)
-  for (var i = 0; i < _drawList.length; i++) {
-    if (_drawList[i].z >= 0) _drawPlanet(_drawList[i]);
-  }
+  _ctx2d.restore();
 
-  // Draw text with stroke outline
+  // Text
   _ctx2d.font = 'bold ' + _fontSize + 'px Arial';
   _ctx2d.textAlign = 'center';
   _ctx2d.textBaseline = 'middle';
-  _ctx2d.lineWidth = Math.max(2, _fontSize * 0.08);
-  _ctx2d.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-  _ctx2d.strokeText('Made with PhaserJS', _cw / 2, _textY);
   _ctx2d.fillStyle = '#ffffff';
-  _ctx2d.fillText('Made with PhaserJS', _cw / 2, _textY);
-}
-
-function _drawPlanet(item) {
-  var p = item.p;
-  _ctx2d.fillStyle = p.color;
-  _ctx2d.beginPath();
-  _ctx2d.arc(item.x, item.y, p.radius, 0, Math.PI * 2);
-  _ctx2d.fill();
-  // Saturn ring
-  if (p.ring) {
-    _ctx2d.strokeStyle = 'rgba(212, 168, 71, 0.6)';
-    _ctx2d.lineWidth = p.radius * 0.25;
-    _ctx2d.beginPath();
-    _ctx2d.ellipse(item.x, item.y, p.radius * 2.0, p.radius * 0.5, -0.3, 0, Math.PI * 2);
-    _ctx2d.stroke();
-  }
+  _ctx2d.fillText('Made with PhaserJS', _cw / 2, _ch * 0.7);
 }
 
 // Initial draw
@@ -248,15 +224,11 @@ _gl.viewport(0, 0, _canvas.width, _canvas.height);
 _gl.enable(_gl.BLEND);
 _gl.blendFunc(_gl.SRC_ALPHA, _gl.ONE_MINUS_SRC_ALPHA);
 
-// --- Splash animation (fade-in → breathing glow until boot) ---
+// --- Splash animation (fade-in, then stay at full opacity) ---
 var _alpha = 0;
-var _phase = 0; // 0=fade-in, 1=breathing
-var _timer = 0;
 var _fadeInDuration = 1000;
-var _breathMin = 0.5;
-var _breathMax = 1.0;
-var _breathCycle = 2000; // one full breath cycle in ms
 var _lastTime = Date.now();
+var _timer = 0;
 var _splashRafId = 0;
 
 function _drawSplash() {
@@ -265,21 +237,17 @@ function _drawSplash() {
   _lastTime = now;
   _timer += dt;
 
-  if (_phase === 0) {
+  // Fade in only, then stay at full opacity
+  if (_alpha < 1) {
     _alpha = Math.min(_timer / _fadeInDuration, 1);
-    if (_timer >= _fadeInDuration) { _phase = 1; _timer = 0; }
-  } else {
-    // Smooth sine breathing: oscillate between _breathMin and _breathMax
-    var t = (_timer % _breathCycle) / _breathCycle;
-    _alpha = _breathMin + (_breathMax - _breathMin) * (0.5 + 0.5 * Math.cos(t * 2 * Math.PI));
   }
 
-  // Re-draw solar system animation and re-upload texture
+  // Re-draw pinwheel animation and re-upload texture
   _drawScene(now);
   _gl.bindTexture(_gl.TEXTURE_2D, _tex);
   _gl.texImage2D(_gl.TEXTURE_2D, 0, _gl.RGBA, _gl.RGBA, _gl.UNSIGNED_BYTE, _offCanvas);
 
-  _gl.clearColor(0.137, 0.173, 0.216, 1);
+  _gl.clearColor(0.102, 0.102, 0.180, 1);
   _gl.clear(_gl.COLOR_BUFFER_BIT);
   _gl.uniform1f(_uAlpha, _alpha);
   _gl.drawArrays(_gl.TRIANGLE_STRIP, 0, 4);

@@ -68,9 +68,9 @@ describe('Full Pipeline Integration', () => {
     expect(content).toContain("__adapterExports = require('./phaser-wx-adapter.js')");
     expect(content).toContain("require('engine/phaser-engine.min.js')");
     expect(content).toContain("require('./game-bundle.js')");
-    // No manual canvas progress bar — platform handles loading UI
-    expect(content).not.toContain("getContext('2d')");
-    expect(content).not.toContain("_drawProgress");
+    // Splash uses off-screen 2D canvas for pinwheel animation
+    expect(content).toContain("getContext('2d')");
+    expect(content).toContain("_drawScene");
   });
 
   it('generates game.json with correct orientation', () => {

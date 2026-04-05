@@ -141,6 +141,49 @@ export function splitAssets(
     }
   }
 
+  // --- Scan assetsDir for files NOT already referenced by loader calls ---
+  if (assetsDir && fs.existsSync(assetsDir)) {
+    const webRoot = path.dirname(assetsDir); // e.g. "public"
+    const allLocalFiles = walkDirRelative(assetsDir, webRoot);
+    // Also build a set of absolute paths already seen, to deduplicate
+    // against scanner refs that may use different relative path formats
+    const seenAbsolute = new Set<string>();
+    for (const ref of assetRefs) {
+      let abs = path.resolve(path.join(assetsDir, ref.path));
+      if (fs.existsSync(abs)) { seenAbsolute.add(abs); continue; }
+      abs = path.resolve(path.join(webRoot, ref.path));
+      if (fs.existsSync(abs)) { seenAbsolute.add(abs); }
+    }
+
+    for (const relPath of allLocalFiles) {
+      if (seen.has(relPath)) continue;
+      const absolutePath = path.join(webRoot, relPath);
+      if (seenAbsolute.has(path.resolve(absolutePath))) continue;
+      seen.add(relPath);
+      const stat = fs.statSync(absolutePath);
+      const size = stat.size;
+      const hash = computeHash(absolutePath);
+
+      const entry: AssetEntry = {
+        path: relPath,
+        absolutePath,
+        size,
+        hash,
+        type: inferTypeFromExt(relPath),
+      };
+
+      if (size > threshold) {
+        const destPath = path.join(remoteDir, relPath);
+        copyFileWithDirs(absolutePath, destPath);
+        result.remote.push(entry);
+      } else {
+        const destPath = path.join(outputDir, relPath);
+        copyFileWithDirs(absolutePath, destPath);
+        result.local.push(entry);
+      }
+    }
+  }
+
   // --- Scan remoteAssetsDir for files NOT already referenced by loader calls ---
   if (remoteAssetsDir && fs.existsSync(remoteAssetsDir)) {
     // Determine the common parent used as web root (e.g. "public/")
