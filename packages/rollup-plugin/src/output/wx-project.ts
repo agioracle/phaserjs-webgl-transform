@@ -26,7 +26,7 @@ export function generateWxProject(config: WxProjectConfig): void {
   ];
 
   // game.js
-  // Stage 1: Show "Made with PhaserJS" splash with fade-in animation using WebGL
+  // Stage 1: Show "Made with MiniPlay" splash with fade-in animation using WebGL
   //          (must use WebGL on the main canvas so Phaser can reuse it later).
   //          Text is rendered on an off-screen 2D canvas, then drawn as a WebGL texture.
   // Stage 2: After engine loads + splash finishes, require adapter + engine + game-bundle.
@@ -205,7 +205,7 @@ function _drawScene(now) {
   _ctx2d.textAlign = 'center';
   _ctx2d.textBaseline = 'middle';
   _ctx2d.fillStyle = '#ffffff';
-  _ctx2d.fillText('Made with PhaserJS', _cw / 2, _ch * 0.7);
+  _ctx2d.fillText('Made with MiniPlay', _cw / 2, _ch * 0.7);
 }
 
 // Initial draw
