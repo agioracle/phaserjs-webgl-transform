@@ -20,14 +20,15 @@ npm run build
 ## Scene Flow
 
 ```
-game.js  ──→  BootScene  ──→  MenuScene  ──→  GameScene
-(闪屏+引擎下载)  (加载资源+下载menu分包)  (加载资源+预下载game-play)  (游戏)
+game.js  ──→  BootScene  ──→  MenuScene  ──→  GameScene  ──→  GameOverScene
+(闪屏+引擎下载)  (加载资源+下载menu分包)  (加载资源+预下载game-play)  (游戏+预下载game-over)  (结算)
 ```
 
 1. **game.js** — "Made with Phaser" 闪屏（渐显 + 呼吸灯），同时异步下载 engine 分包
 2. **BootScene** — Phaser 加载画面（进度条），加载 game_logo，并行下载 menu 分包
 3. **MenuScene** — 标题界面 + Start 按钮，加载 bgm，预下载 game-play 分包
-4. **GameScene** — Breakout 游戏（挡板、球、砖块、计分、生命值）
+4. **GameScene** — Breakout 游戏（挡板、球、砖块、计分、生命值），并行预下载 game-over 分包
+5. **GameOverScene** — 关卡结算（胜/负 + 最终得分），点击返回 MenuScene
 
 ## Subpackage Structure
 
@@ -39,6 +40,7 @@ game.js  ──→  BootScene  ──→  MenuScene  ──→  GameScene
 | `engine/` | phaser-engine.min.js | Phaser 引擎（esbuild 压缩） |
 | `menu/` | menu-scene.js | MenuScene 代码 |
 | `game-play/` | game-scene.js + assets/ | GameScene 代码 + 本地资源 |
+| `game-over/` | game-over-scene.js | GameOverScene 代码（关卡结算） |
 
 分包配置在 `phaser-wx.config.json` 的 `subpackages` 字段中声明。
 
@@ -62,7 +64,8 @@ src/
   scenes/
     BootScene.js       Loading screen + downloads menu subpackage
     MenuScene.js       Title screen + preloads game-play subpackage
-    GameScene.js       Breakout game scene
+    GameScene.js       Breakout game scene (preloads game-over subpackage)
+    GameOverScene.js   Round-end result screen (win/lose + final score)
   ui/
     Button.js          Reusable button component
 public/

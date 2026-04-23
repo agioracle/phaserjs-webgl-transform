@@ -22,6 +22,28 @@ export class GameScene extends Phaser.Scene {
     // Load GameScene-specific assets
     this.load.image('ball', 'assets/images/ball.png');
     this.load.audio('ball_hit', 'assets/audio/ball_hit.mp3');
+
+    // Parallel: preload game-over subpackage so the round-end screen is ready
+    // by the time the player wins/loses.
+    this._gameOverReady = false;
+    if (typeof wx !== 'undefined' && wx.loadSubpackage) {
+      wx.loadSubpackage({
+        name: 'game-over',
+        success: () => {
+          if (!this.scene.get('GameOverScene')) {
+            const { GameOverScene } = require('game-over/game-over-scene.js');
+            this.scene.add('GameOverScene', GameOverScene, false);
+          }
+          this._gameOverReady = true;
+        },
+        fail: (err) => {
+          console.error('Failed to load game-over subpackage:', err);
+        },
+      });
+    } else {
+      // Fallback for non-WeChat environments (dev/test)
+      this._gameOverReady = true;
+    }
   }
 
   create() {
@@ -88,10 +110,8 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerdown', (pointer) => {
-      if (this.gameOver) {
-        this.scene.start('MenuScene');
-        return;
-      }
+      // When the round is over, input is handled by GameOverScene.
+      if (this.gameOver) return;
       // Launch ball if waiting on paddle
       if (this.waiting) {
         this.waiting = false;
@@ -205,40 +225,28 @@ export class GameScene extends Phaser.Scene {
   }
 
   winGame() {
-    this.gameOver = true;
-    this.ball.body.setVelocity(0, 0);
-    const W = this.cameras.main.width;
-    const H = this.cameras.main.height;
-
-    this.add.text(W / 2, H / 2 - 40, 'YOU WIN!', {
-      fontSize: '52px', color: '#2ed573', fontStyle: 'bold',
-    }).setOrigin(0.5, 0.5).setDepth(20);
-
-    this.add.text(W / 2, H / 2 + 30, 'Final Score: ' + this.score, {
-      fontSize: '32px', color: '#ffffff',
-    }).setOrigin(0.5, 0.5).setDepth(20);
-
-    this.add.text(W / 2, H / 2 + 90, 'Tap to return to Menu', {
-      fontSize: '28px', color: '#ffffff',
-    }).setOrigin(0.5, 0.5).setDepth(20).setAlpha(0.5);
+    this.endRound(true);
   }
 
   loseGame() {
+    this.endRound(false);
+  }
+
+  /**
+   * End the current round and hand off to GameOverScene.
+   * If the game-over subpackage is still downloading, poll briefly.
+   */
+  endRound(won) {
     this.gameOver = true;
     this.ball.body.setVelocity(0, 0);
-    const W = this.cameras.main.width;
-    const H = this.cameras.main.height;
 
-    this.add.text(W / 2, H / 2 - 40, 'GAME OVER', {
-      fontSize: '52px', color: '#ff4757', fontStyle: 'bold',
-    }).setOrigin(0.5, 0.5).setDepth(20);
-
-    this.add.text(W / 2, H / 2 + 30, 'Score: ' + this.score, {
-      fontSize: '32px', color: '#ffffff',
-    }).setOrigin(0.5, 0.5).setDepth(20);
-
-    this.add.text(W / 2, H / 2 + 90, 'Tap to return to Menu', {
-      fontSize: '28px', color: '#ffffff',
-    }).setOrigin(0.5, 0.5).setDepth(20).setAlpha(0.5);
+    const launchGameOver = () => {
+      if (this._gameOverReady) {
+        this.scene.start('GameOverScene', { score: this.score, won });
+      } else {
+        this.time.delayedCall(100, launchGameOver);
+      }
+    };
+    launchGameOver();
   }
 }

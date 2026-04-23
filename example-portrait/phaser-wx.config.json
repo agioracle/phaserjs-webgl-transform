@@ -23,6 +23,12 @@
       "root": "game-play/",
       "entry": "src/scenes/GameScene.js",
       "outputFile": "game-scene.js"
+    },
+    {
+      "name": "game-over",
+      "root": "game-over/",
+      "entry": "src/scenes/GameOverScene.js",
+      "outputFile": "game-over-scene.js"
     }
   ]
 }

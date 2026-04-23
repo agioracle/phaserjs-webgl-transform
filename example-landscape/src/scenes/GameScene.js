@@ -17,6 +17,28 @@ export class GameScene extends Phaser.Scene {
     // Load bird sprite and hit sound
     this.load.image('bird', 'assets/images/bird.png');
     this.load.audio('bird_hit', 'assets/audio/bird_hit.mp3');
+
+    // Parallel: preload game-over subpackage so the round-end screen is ready
+    // by the time the bird crashes.
+    this._gameOverReady = false;
+    if (typeof wx !== 'undefined' && wx.loadSubpackage) {
+      wx.loadSubpackage({
+        name: 'game-over',
+        success: () => {
+          if (!this.scene.get('GameOverScene')) {
+            const { GameOverScene } = require('game-over/game-over-scene.js');
+            this.scene.add('GameOverScene', GameOverScene, false);
+          }
+          this._gameOverReady = true;
+        },
+        fail: (err) => {
+          console.error('Failed to load game-over subpackage:', err);
+        },
+      });
+    } else {
+      // Fallback for non-WeChat environments (dev/test)
+      this._gameOverReady = true;
+    }
   }
 
   create() {
@@ -294,51 +316,15 @@ export class GameScene extends Phaser.Scene {
     this.bird.body.allowGravity = false;
     this.bird.body.setVelocity(0, 0);
 
-    const W = this.cameras.main.width;
-    const H = this.cameras.main.height;
-
-    // Dim overlay
-    const overlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.4);
-    overlay.setDepth(15);
-
-    // Game Over text
-    this.add.text(W / 2, H / 2 - 60, 'Game Over', {
-      fontSize: '52px',
-      fontStyle: 'bold',
-      color: '#ff4757',
-      stroke: '#000000',
-      strokeThickness: 4,
-    }).setOrigin(0.5, 0.5).setDepth(20);
-
-    // Final score
-    this.add.text(W / 2, H / 2 + 10, 'Score: ' + this.score, {
-      fontSize: '36px',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 3,
-    }).setOrigin(0.5, 0.5).setDepth(20);
-
-    // Restart hint
-    const restartText = this.add.text(W / 2, H / 2 + 70, 'Tap to Restart', {
-      fontSize: '28px',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 2,
-    }).setOrigin(0.5, 0.5).setDepth(20);
-
-    this.tweens.add({
-      targets: restartText,
-      alpha: 0.3,
-      duration: 600,
-      yoyo: true,
-      repeat: -1,
-    });
-
-    // Delayed input to prevent accidental restart
-    this.time.delayedCall(500, () => {
-      this.input.once('pointerdown', () => {
-        this.scene.start('MenuScene');
-      });
-    });
+    // Hand off to GameOverScene (loaded from the game-over subpackage).
+    // If the subpackage is still downloading, poll briefly.
+    const launchGameOver = () => {
+      if (this._gameOverReady) {
+        this.scene.start('GameOverScene', { score: this.score });
+      } else {
+        this.time.delayedCall(100, launchGameOver);
+      }
+    };
+    launchGameOver();
   }
 }
