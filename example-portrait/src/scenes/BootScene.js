@@ -1,4 +1,10 @@
 import Phaser from 'phaser';
+import {
+  drawCasualBackground,
+  casualText,
+  createProgressBar,
+  PALETTE,
+} from '../utils/casual-ui.js';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -6,34 +12,38 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload() {
-    // --- Progress bar ---
     const { width, height } = this.cameras.main;
-    const barWidth = width * 0.6;
-    const barHeight = 30;
-    const barX = (width - barWidth) / 2;
-    const barY = height / 2;
 
-    const bgBar = this.add.rectangle(barX + barWidth / 2, barY, barWidth, barHeight, 0x444444);
-    bgBar.setOrigin(0.5, 0.5);
+    // --- Casual-style background ---
+    drawCasualBackground(this);
 
-    this.fillBar = this.add.rectangle(barX, barY, 0, barHeight, 0x00cc66);
-    this.fillBar.setOrigin(0, 0.5);
-    this.barWidth = barWidth;
+    // --- Logo (loaded here, shown in create) ---
+    this.load.image('game_logo', 'remote-assets/images/game_logo.png');
 
-    this.loadingText = this.add.text(width / 2, barY - 40, 'Loading...', {
-      fontSize: '24px',
-      color: '#ffffff',
+    // --- Title (shows even before the logo arrives) ---
+    casualText(this, width / 2, height * 0.32, 'BREAKOUT', {
+      fontSize: 88,
+      color: PALETTE.textLight,
+      stroke: '#000000',
+      strokeThickness: 10,
     });
-    this.loadingText.setOrigin(0.5, 0.5);
+
+    // --- Progress bar ---
+    const barW = Math.min(width * 0.72, 600);
+    const barH = 44;
+    const barY = height * 0.62;
+    this.progressBar = createProgressBar(this, width / 2, barY, barW, barH);
+
+    this.loadingText = casualText(this, width / 2, barY - 56, 'Loading...', {
+      fontSize: 30,
+      color: PALETTE.textSub,
+      stroke: '#000000',
+      strokeThickness: 4,
+    });
 
     this.load.on('progress', (value) => {
-      this.fillBar.width = barWidth * value;
+      this.progressBar.setProgress(value);
     });
-
-    // --- Load BootScene assets only ---
-    // Logo displayed on loading screen — remote asset loaded from CDN,
-    // or from local assets/ if no CDN (new command rewrites the path)
-    this.load.image('game_logo', 'remote-assets/images/game_logo.png');
 
     // --- Parallel: load menu subpackage ---
     this._menuReady = false;
@@ -52,35 +62,47 @@ export class BootScene extends Phaser.Scene {
         },
       });
     } else {
-      // Fallback for non-WeChat environments (dev/test):
-      // MenuScene should already be registered or import dynamically
       this._menuReady = true;
     }
   }
 
   create() {
+    const { width, height } = this.cameras.main;
+
+    // Logo above the title
+    const logo = this.add.image(width / 2, height * 0.18, 'game_logo').setOrigin(0.5, 0.5);
+    // Gentle bob
+    this.tweens.add({
+      targets: logo,
+      y: logo.y - 10,
+      duration: 1200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
     const proceed = () => {
       if (this._menuReady) {
         this.scene.start('MenuScene');
       } else {
-        // Wait for menu subpackage to finish loading
         this.time.delayedCall(100, proceed);
       }
     };
 
-    // Show logo above progress bar
-    const { width } = this.cameras.main;
-    this.add.image(width / 2, this.cameras.main.height / 2 - 180, 'game_logo').setOrigin(0.5, 0.5);
-
-    // Simulate a 1-second loading animation so the progress bar is visible
-    this.tweens.add({
-      targets: this.fillBar,
-      width: this.barWidth,
+    // Animate the bar to full in ~1s so the UI feels alive
+    let fakeProgress = 0;
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
       duration: 1000,
       ease: 'Sine.easeInOut',
+      onUpdate: (tw) => {
+        fakeProgress = tw.getValue();
+        this.progressBar.setProgress(fakeProgress);
+      },
       onComplete: () => {
-        this.loadingText.setText('Complete!');
-        this.time.delayedCall(200, proceed);
+        this.loadingText.setText('READY!');
+        this.time.delayedCall(250, proceed);
       },
     });
   }

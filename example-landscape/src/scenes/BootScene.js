@@ -1,4 +1,10 @@
 import Phaser from 'phaser';
+import {
+  drawCasualBackground,
+  casualText,
+  createProgressBar,
+  PALETTE,
+} from '../utils/casual-ui.js';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -8,37 +14,40 @@ export class BootScene extends Phaser.Scene {
   preload() {
     const { width, height } = this.cameras.main;
 
-    // --- Load game_logo for display after loading ---
+    // --- Sky-colored casual gradient background ---
+    drawCasualBackground(this, { top: 0x4bbfe8, bottom: 0x97e0ff });
+
+    // --- Load game_logo (shown after loading) ---
     this.load.image('game_logo', 'remote-assets/images/game_logo.png');
 
     // --- Title ---
-    this.add.text(width / 2, height / 2 - 120, 'Flappy Bird', {
-      fontSize: '56px',
-      fontStyle: 'bold',
+    casualText(this, width / 2, height * 0.34, 'FLAPPY BIRD', {
+      fontSize: 84,
       color: '#ffffff',
-    }).setOrigin(0.5, 0.5);
+      stroke: '#2d6b1e',
+      strokeThickness: 10,
+    });
 
     // --- Progress bar ---
-    const barWidth = width * 0.6;
-    const barHeight = 30;
-    const barX = (width - barWidth) / 2;
-    const barY = height / 2;
-
-    const bgBar = this.add.rectangle(barX + barWidth / 2, barY, barWidth, barHeight, 0x444444);
-    bgBar.setOrigin(0.5, 0.5);
-
-    this.fillBar = this.add.rectangle(barX, barY, 0, barHeight, 0x00cc66);
-    this.fillBar.setOrigin(0, 0.5);
-    this.barWidth = barWidth;
-
-    this.loadingText = this.add.text(width / 2, barY - 40, 'Loading...', {
-      fontSize: '24px',
-      color: '#ffffff',
+    const barW = Math.min(width * 0.55, 700);
+    const barH = 44;
+    const barY = height * 0.66;
+    this.progressBar = createProgressBar(this, width / 2, barY, barW, barH, {
+      edge: 0x2d6b1e,
+      fill: 0x1a4a1a,
+      barColor: PALETTE.primary,
+      barHi: PALETTE.primaryHi,
     });
-    this.loadingText.setOrigin(0.5, 0.5);
+
+    this.loadingText = casualText(this, width / 2, barY - 56, 'Loading...', {
+      fontSize: 30,
+      color: '#ffffff',
+      stroke: '#2d6b1e',
+      strokeThickness: 5,
+    });
 
     this.load.on('progress', (value) => {
-      this.fillBar.width = barWidth * value;
+      this.progressBar.setProgress(value);
     });
 
     // --- Parallel: load menu subpackage ---
@@ -65,8 +74,15 @@ export class BootScene extends Phaser.Scene {
   create() {
     const { width, height } = this.cameras.main;
 
-    // Show game logo above progress bar
-    this.add.image(width / 2, height / 2 - 180, 'game_logo').setOrigin(0.5, 0.5);
+    const logo = this.add.image(width / 2, height * 0.20, 'game_logo').setOrigin(0.5, 0.5);
+    this.tweens.add({
+      targets: logo,
+      y: logo.y - 10,
+      duration: 1200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
 
     const proceed = () => {
       if (this._menuReady) {
@@ -76,15 +92,15 @@ export class BootScene extends Phaser.Scene {
       }
     };
 
-    // Simulate a 1-second loading animation so the progress bar is visible
-    this.tweens.add({
-      targets: this.fillBar,
-      width: this.barWidth,
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
       duration: 1000,
       ease: 'Sine.easeInOut',
+      onUpdate: (tw) => this.progressBar.setProgress(tw.getValue()),
       onComplete: () => {
-        this.loadingText.setText('Complete!');
-        this.time.delayedCall(200, proceed);
+        this.loadingText.setText('READY!');
+        this.time.delayedCall(250, proceed);
       },
     });
   }
