@@ -41,8 +41,8 @@ export class MenuScene extends Phaser.Scene {
     const H = this.cameras.main.height;  // 750
     const sa = getSafeArea(this);
 
-    // --- Sky gradient background ---
-    drawCasualBackground(this, { top: 0x4bbfe8, bottom: 0x97e0ff });
+    // --- Sky gradient background (bright, sunny pastel) ---
+    drawCasualBackground(this, { top: 0x8fd9ff, bottom: 0xfff3d9 });
 
     // --- Decorative clouds ---
     this.drawClouds(W, H);
@@ -66,14 +66,9 @@ export class MenuScene extends Phaser.Scene {
       this.sound.play('bgm', { loop: true, volume: 0.5 });
     }
 
-    // --- Title plate (rounded panel behind text) ---
+    // --- Title plate (rounded panel behind text — light cream card) ---
     const titleY = sa.top + 80;
-    drawPanel(this, W / 2, titleY, 520, 120, {
-      radius: 24,
-      fill: 0x0b1a3e,
-      edge: 0x2d6b1e,
-      hi: 0x5ad15a,
-    });
+    drawPanel(this, W / 2, titleY, 520, 120, { radius: 24 });
     casualText(this, W / 2, titleY - 4, 'FLAPPY BIRD', {
       fontSize: 64,
       color: '#ffffff',
@@ -81,14 +76,9 @@ export class MenuScene extends Phaser.Scene {
       strokeThickness: 8,
     });
 
-    // --- Hint card under the bird ---
+    // --- Hint card under the bird (light cream card) ---
     const hintY = H * 0.70;
-    drawPanel(this, W / 2, hintY, 560, 90, {
-      radius: 18,
-      fill: 0x0b1a3e,
-      edge: 0x1b3a7a,
-      hi: 0x3a68c2,
-    });
+    drawPanel(this, W / 2, hintY, 560, 90, { radius: 18 });
     this.add.text(W / 2, hintY, 'Tap to flap. Avoid the pipes!', {
       fontSize: '30px',
       fontStyle: 'bold',

@@ -57,8 +57,8 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = false;
     this.score = 0;
 
-    // --- Sky casual gradient ---
-    drawCasualBackground(this, { top: 0x4bbfe8, bottom: 0x97e0ff });
+    // --- Sky casual gradient (bright pastel) ---
+    drawCasualBackground(this, { top: 0x8fd9ff, bottom: 0xfff3d9 });
 
     // --- Clouds (scrolling subtly) ---
     this.cloudGfx = this.add.graphics();
@@ -104,16 +104,13 @@ export class GameScene extends Phaser.Scene {
     this.startCardY = H / 2 + 140;
     this.startCard = drawPanel(this, W / 2, this.startCardY, 460, 80, {
       radius: 18,
-      fill: PALETTE.panelFill,
-      edge: PALETTE.panelEdge,
-      hi: PALETTE.panelHi,
     });
     this.hintText = this.add.text(W / 2, this.startCardY, 'TAP TO START', {
       fontSize: '36px',
       fontStyle: 'bold',
-      color: '#ffc23a',
-      stroke: '#000000',
-      strokeThickness: 4,
+      color: '#d08512',
+      stroke: '#3d2a1a',
+      strokeThickness: 3,
     }).setOrigin(0.5, 0.5);
 
     this.tweens.add({

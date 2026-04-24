@@ -2,52 +2,54 @@
  * Casual-game UI toolkit
  *
  * Reusable helpers that render juicy, mobile-casual-looking UI elements
- * (deep-blue gradient backgrounds, chunky pill buttons with drop shadow,
- * rounded card panels, badges) with Phaser Graphics only — no extra
- * assets required.
+ * (bright cream/peach gradient backgrounds, chunky pill buttons with drop
+ * shadow, rounded card panels, badges) with Phaser Graphics only — no
+ * extra assets required.
  *
- * Palette is tuned to match the reference hero-screen mock (deep navy
- * background + saturated primary/accent colors with white bevel highlight).
+ * Palette is tuned to feel warm, sunny and cheerful — the kind of bright
+ * candy/match-3 mobile casual look. Backgrounds are warm cream→peach;
+ * panels are creamy-white with a soft peach bevel so they "pop" against
+ * the bright background without feeling dark or AI-generated.
  */
 
 // ────────────────────────────────────────────────
 // Palette
 // ────────────────────────────────────────────────
 export const PALETTE = {
-  // Background (deep gradient navy)
-  bgTop:      0x0f2252,
-  bgBottom:   0x1f4aa0,
+  // Background (warm cream → peach gradient — bright, sunny, casual)
+  bgTop:      0xfff3d9,
+  bgBottom:   0xffc890,
 
-  // Panel / card
-  panelFill:  0x0b1a3e,
-  panelEdge:  0x1b3a7a,
-  panelHi:    0x3a68c2,
+  // Panel / card (creamy-white with warm peach bevel)
+  panelFill:  0xfff8ea,
+  panelEdge:  0xffa366,
+  panelHi:    0xffffff,
 
-  // Primary action (warm yellow/orange — BATTLE button in mock)
+  // Primary action (warm yellow/orange — still the hero button)
   primary:     0xffc23a,
   primaryDark: 0xd08512,
   primaryHi:   0xffe89a,
 
-  // Secondary action (cyan / sky blue — STAGE button in mock)
-  accent:      0x3ea6ff,
-  accentDark:  0x1b63c4,
+  // Secondary action (sky blue — slightly deeper so it stays punchy on cream)
+  accent:      0x2ea0f5,
+  accentDark:  0x1467b8,
   accentHi:    0x9cd6ff,
 
-  // Success (green — Lv upgrade button)
-  success:     0x5ad15a,
+  // Success (fresh green)
+  success:     0x6ed66e,
   successDark: 0x2f8a2f,
-  successHi:   0xb5ee8e,
+  successHi:   0xc8f0a2,
 
-  // Danger (red badges)
-  danger:      0xff4d4d,
+  // Danger (red)
+  danger:      0xff5a5a,
   dangerDark:  0xb21f2a,
   dangerHi:    0xffb3b3,
 
   // Text
-  textLight:   '#ffffff',
-  textSub:     '#bcd2ff',
-  textDark:    '#0b1a3e',
-  textStroke:  '#0b1a3e',
+  textLight:   '#ffffff',    // used on colored ribbons / buttons
+  textSub:     '#8a5a33',    // warm brown — readable on cream panels
+  textDark:    '#3d2a1a',    // warm dark brown (button labels on yellow)
+  textStroke:  '#6b4a2b',    // warm brown stroke for casual title text
 };
 
 // ────────────────────────────────────────────────
@@ -82,8 +84,8 @@ export function drawCasualBackground(scene, opts = {}) {
     gfx.fillRect(0, Math.floor(i * H / steps), W, Math.ceil(H / steps) + 1);
   }
 
-  // Sparkle dots (very subtle)
-  gfx.fillStyle(0xffffff, 0.12);
+  // Sparkle dots (very subtle — warm amber on light cream)
+  gfx.fillStyle(0xffa366, 0.18);
   const seedRng = Phaser.Math.RND;
   for (let i = 0; i < 40; i++) {
     const x = seedRng.between(0, W);
@@ -264,14 +266,18 @@ export function createPillButton(scene, x, y, opts = {}) {
 /**
  * Create a small rounded stat chip, e.g. a score or lives counter.
  *
+ * Layout (all on a single row):
+ *   [ colored icon ]  LABEL  VALUE
+ *
  * opts:
- *   w, h
- *   iconColor : small circle color at left
- *   text         value string (updatable via returned .setText)
- *   textColor    css color for the value
+ *   w, h         chip dimensions
+ *   iconColor    small circle color at left
  *   label        optional caption shown between icon and value (e.g. "SCORE")
  *   labelColor   css color for the caption
  *   labelSize    font size (px) for the caption
+ *   text         value string (updatable via returned .setText)
+ *   textColor    css color for the value
+ *   fontSize     font size (px) for the value
  *   fill         chip fill
  *   edge         chip edge color
  */
@@ -282,7 +288,7 @@ export function createBadge(scene, x, y, opts = {}) {
   const iconColor = opts.iconColor ?? PALETTE.primary;
   const fill = opts.fill ?? PALETTE.panelFill;
   const edge = opts.edge ?? PALETTE.panelEdge;
-  const textColor = opts.textColor ?? PALETTE.textLight;
+  const textColor = opts.textColor ?? PALETTE.textDark;
   const fontSize = opts.fontSize ?? 26;
   const label = opts.label ?? '';
   const labelColor = opts.labelColor ?? PALETTE.textSub;
@@ -302,18 +308,18 @@ export function createBadge(scene, x, y, opts = {}) {
   // fill
   gfx.fillStyle(fill, 1);
   gfx.fillRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, radius - 2);
-  // icon circle at left
+  // icon circle at left (dark hairline so it shows on light panels)
   gfx.fillStyle(iconColor, 1);
   gfx.fillCircle(-w / 2 + h / 2, 0, h / 2 - 6);
-  gfx.lineStyle(2, 0xffffff, 0.8);
+  gfx.lineStyle(2, 0x3d2a1a, 0.6);
   gfx.strokeCircle(-w / 2 + h / 2, 0, h / 2 - 6);
 
   container.add(gfx);
 
   // Row layout — icon occupies [-w/2, -w/2 + h], caption is left-aligned
   // right after the icon, value is right-aligned at the chip's right edge.
-  const contentLeft = -w / 2 + h + 8;
-  const contentRight = w / 2 - 16;
+  const contentLeft = -w / 2 + h + 8; // right edge of icon + 8px gap
+  const contentRight = w / 2 - 16;    // inner right padding
 
   let labelText = null;
   if (label) {
@@ -373,7 +379,7 @@ export function casualText(scene, x, y, content, opts = {}) {
 export function createProgressBar(scene, x, y, w, h, opts = {}) {
   const radius = h / 2;
   const edge = opts.edge ?? PALETTE.panelEdge;
-  const fill = opts.fill ?? 0x0a163a;
+  const fill = opts.fill ?? 0xc97a3a;   // warm amber track (empty slot)
   const barColor = opts.barColor ?? PALETTE.success;
   const barHi = opts.barHi ?? PALETTE.successHi;
 

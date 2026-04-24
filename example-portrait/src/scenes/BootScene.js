@@ -3,7 +3,6 @@ import {
   drawCasualBackground,
   casualText,
   createProgressBar,
-  PALETTE,
 } from '../utils/casual-ui.js';
 
 export class BootScene extends Phaser.Scene {
@@ -23,8 +22,8 @@ export class BootScene extends Phaser.Scene {
     // --- Title (shows even before the logo arrives) ---
     casualText(this, width / 2, height * 0.32, 'BREAKOUT', {
       fontSize: 88,
-      color: PALETTE.textLight,
-      stroke: '#000000',
+      color: '#3d2a1a',
+      stroke: '#ffc890',
       strokeThickness: 10,
     });
 
@@ -36,8 +35,8 @@ export class BootScene extends Phaser.Scene {
 
     this.loadingText = casualText(this, width / 2, barY - 56, 'Loading...', {
       fontSize: 30,
-      color: PALETTE.textSub,
-      stroke: '#000000',
+      color: '#6b4a2b',
+      stroke: '#ffffff',
       strokeThickness: 4,
     });
 

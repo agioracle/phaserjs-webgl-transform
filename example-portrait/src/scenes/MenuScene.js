@@ -71,15 +71,15 @@ export class MenuScene extends Phaser.Scene {
     // --- Title ---
     casualText(this, W / 2, saTop + saH * 0.24, 'BREAKOUT', {
       fontSize: 100,
-      color: PALETTE.textLight,
-      stroke: '#000000',
+      color: '#3d2a1a',
+      stroke: '#ffe89a',
       strokeThickness: 12,
     });
     casualText(this, W / 2, saTop + saH * 0.31, 'CLASSIC EDITION', {
       fontSize: 32,
-      color: '#ffe89a',
-      stroke: '#000000',
-      strokeThickness: 5,
+      color: '#d08512',
+      stroke: '#3d2a1a',
+      strokeThickness: 4,
     });
 
     // --- Info panel ---
@@ -90,9 +90,9 @@ export class MenuScene extends Phaser.Scene {
 
     casualText(this, W / 2, panelY - 80, 'HOW TO PLAY', {
       fontSize: 36,
-      color: '#ffc23a',
-      stroke: '#000000',
-      strokeThickness: 5,
+      color: '#d08512',
+      stroke: '#3d2a1a',
+      strokeThickness: 4,
     });
 
     this.add.text(W / 2, panelY, 'Swipe or tap to move the paddle.\nBreak every brick to win!', {
@@ -119,8 +119,8 @@ export class MenuScene extends Phaser.Scene {
     const hint = this.add.text(W / 2, saTop + saH * 0.88, 'TAP TO START', {
       fontSize: '26px',
       fontStyle: 'bold',
-      color: '#9cd6ff',
-      stroke: '#0b1a3e',
+      color: '#3d2a1a',
+      stroke: '#ffe89a',
       strokeThickness: 4,
       letterSpacing: 2,
     }).setOrigin(0.5, 0.5);

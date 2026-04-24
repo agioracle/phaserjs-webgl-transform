@@ -14,8 +14,8 @@ export class BootScene extends Phaser.Scene {
   preload() {
     const { width, height } = this.cameras.main;
 
-    // --- Sky-colored casual gradient background ---
-    drawCasualBackground(this, { top: 0x4bbfe8, bottom: 0x97e0ff });
+    // --- Sky-colored casual gradient background (bright pastel) ---
+    drawCasualBackground(this, { top: 0x8fd9ff, bottom: 0xfff3d9 });
 
     // --- Load game_logo (shown after loading) ---
     this.load.image('game_logo', 'remote-assets/images/game_logo.png');
@@ -33,8 +33,6 @@ export class BootScene extends Phaser.Scene {
     const barH = 44;
     const barY = height * 0.66;
     this.progressBar = createProgressBar(this, width / 2, barY, barW, barH, {
-      edge: 0x2d6b1e,
-      fill: 0x1a4a1a,
       barColor: PALETTE.primary,
       barHi: PALETTE.primaryHi,
     });

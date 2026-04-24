@@ -28,7 +28,7 @@ export class GameOverScene extends Phaser.Scene {
     const saH = H - sa.top - sa.bottom;
 
     // ── Dim overlay ──
-    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.6).setDepth(0);
+    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.45).setDepth(0);
 
     // ── Main result card ──
     const cardW = Math.min(W - 80, 620);
@@ -83,16 +83,16 @@ export class GameOverScene extends Phaser.Scene {
     // ── Score label ──
     casualText(this, W / 2, contentMid - 110, 'FINAL SCORE', {
       fontSize: 32,
-      color: '#ffc23a',
-      stroke: '#000000',
-      strokeThickness: 5,
+      color: '#d08512',
+      stroke: '#3d2a1a',
+      strokeThickness: 4,
     });
 
     // ── Big score number ──
     const scoreNum = casualText(this, W / 2, contentMid - 20, String(this.finalScore), {
       fontSize: 128,
-      color: '#ffffff',
-      stroke: '#000000',
+      color: '#3d2a1a',
+      stroke: '#ffe89a',
       strokeThickness: 12,
     });
     // Pop-in animation
@@ -106,8 +106,8 @@ export class GameOverScene extends Phaser.Scene {
 
     // ── Stars row (decorative on win, grayed on loss) ──
     const starY = contentBottom - 38; // star radius is 34, leaves ~4px cushion above button gap
-    const starColor = this.won ? PALETTE.primary : 0x3a4868;
-    const starHi = this.won ? PALETTE.primaryHi : 0x6079a6;
+    const starColor = this.won ? PALETTE.primary : 0xcfa98a;
+    const starHi = this.won ? PALETTE.primaryHi : 0xe8d5c2;
     [-1, 0, 1].forEach((i, idx) => {
       const sx = W / 2 + i * 90;
       const g = this.add.graphics();

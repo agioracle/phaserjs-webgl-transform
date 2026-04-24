@@ -11,7 +11,7 @@ const config = {
   type: Phaser.WEBGL,
   width: 1334,
   height: 750,
-  backgroundColor: '#4bbfe8',
+  backgroundColor: '#8fd9ff',
   scale: isWxGame
     ? { mode: Phaser.Scale.NONE, autoCenter: Phaser.Scale.NO_CENTER }
     : {

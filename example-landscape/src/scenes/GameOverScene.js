@@ -23,7 +23,7 @@ export class GameOverScene extends Phaser.Scene {
     const H = this.cameras.main.height;  // 750
 
     // Dim overlay
-    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.6).setDepth(0);
+    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.45).setDepth(0);
 
     // Main card
     const cardW = 640;
@@ -65,16 +65,16 @@ export class GameOverScene extends Phaser.Scene {
     // Score label
     casualText(this, W / 2, contentMid - 90, 'YOUR SCORE', {
       fontSize: 28,
-      color: '#ffc23a',
-      stroke: '#000000',
-      strokeThickness: 4,
+      color: '#d08512',
+      stroke: '#3d2a1a',
+      strokeThickness: 3,
     });
 
     // Big score
     const scoreNum = casualText(this, W / 2, contentMid - 10, String(this.finalScore), {
       fontSize: 110,
-      color: '#ffffff',
-      stroke: '#000000',
+      color: '#3d2a1a',
+      stroke: '#ffe89a',
       strokeThickness: 10,
     });
     scoreNum.setScale(0.2);
@@ -91,8 +91,8 @@ export class GameOverScene extends Phaser.Scene {
     [-1, 0, 1].forEach((i, idx) => {
       const sx = W / 2 + i * 90;
       const active = idx < earned;
-      const color = active ? PALETTE.primary : 0x3a4868;
-      const hi = active ? PALETTE.primaryHi : 0x6079a6;
+      const color = active ? PALETTE.primary : 0xcfa98a;
+      const hi = active ? PALETTE.primaryHi : 0xe8d5c2;
       const g = this.add.graphics();
       g.x = sx;
       g.y = starY;

@@ -202,10 +202,11 @@ export class GameScene extends Phaser.Scene {
   buildHud(W, sa) {
     const topY = sa.top + 80;
 
-    // HUD background bar
+    // HUD background bar — slightly warm peach tint to stand out from the
+    // cream sky background (panel default fill would be too close in tone).
     drawPanel(this, W / 2, topY, W - 40, 100, {
       radius: 24,
-      fill: PALETTE.panelFill,
+      fill: 0xffe2b8,
       edge: PALETTE.panelEdge,
       hi: PALETTE.panelHi,
     });
