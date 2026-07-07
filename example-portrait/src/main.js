@@ -21,10 +21,11 @@ const config = {
         height: 1334,
       },
   physics: {
-    default: 'arcade',
-    arcade: {
+    default: 'matter',
+    matter: {
+      // Top-down breakout: no gravity, ball is fully controlled by velocity.
+      gravity: { x: 0, y: 0 },
       debug: false,
-      checkCollision: { up: true, down: true, left: true, right: true },
     },
   },
   scene: [BootScene], // Only BootScene in main bundle; other scenes loaded from subpackages

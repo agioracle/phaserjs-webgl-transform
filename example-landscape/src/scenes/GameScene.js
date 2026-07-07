@@ -9,10 +9,16 @@ import {
 
 const PIPE_WIDTH = 90;
 const PIPE_GAP = 210;
-const PIPE_SPEED = -280;
 const PIPE_INTERVAL = 1200;
-const FLAP_VELOCITY = -350;
 const GROUND_HEIGHT = 80;
+
+// Matter velocity is expressed in pixels-per-step (~value * 60 = px/second at
+// 60Hz), so these are the old Arcade px/second values divided by 60.
+const PIPE_SPEED = -4.7;      // pipe scroll speed        (~-280 px/s)
+const FLAP_VELOCITY = -5.8;   // upward flap impulse      (~-350 px/s)
+// Gravity is applied manually each frame in px/step: old 1200 px/s² → per frame
+// velocity gain of 1200/60 px/s = 20 px/s → 20/60 px/step ≈ 0.33 px/step.
+const GRAVITY_STEP = 0.33;
 
 // Pipe palette (grass-green body with darker edge + gloss)
 const PIPE_FILL = 0x5ad15a;
@@ -76,16 +82,16 @@ export class GameScene extends Phaser.Scene {
 
     this.groundBody = this.add.rectangle(W / 2, H - GROUND_HEIGHT / 2, W, GROUND_HEIGHT);
     this.groundBody.setAlpha(0);
-    this.physics.add.existing(this.groundBody, true);
-    this.groundBody.body.setSize(W, GROUND_HEIGHT);
+    // Static Matter body sized to the rectangle — the bird lands on it and the
+    // contact triggers game over via the world collisionstart event.
+    this.matter.add.gameObject(this.groundBody, { isStatic: true });
     this.groundBody.setDepth(5);
 
     // --- Bird ---
-    this.bird = this.physics.add.sprite(260, H / 2 - 60, 'bird');
+    // Created as a plain sprite pre-start so the "float" tween can move it
+    // freely; the Matter body is attached in startGame() when gravity kicks in.
+    this.bird = this.add.sprite(260, H / 2 - 60, 'bird');
     this.bird.setDepth(10);
-    this.bird.body.allowGravity = false;
-    this.bird.body.setSize(this.bird.width * 0.8, this.bird.height * 0.7);
-    this.bird.body.setOffset(this.bird.width * 0.1, this.bird.height * 0.15);
 
     // --- Score HUD (casual badge — single-row three-segment layout) ---
     // Pinned to a high depth so it always renders above pipes / bird / ground.
@@ -131,8 +137,10 @@ export class GameScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    // --- Collisions ---
-    this.physics.add.collider(this.bird, this.groundBody, this.onGameOver, null, this);
+    // --- Collisions --- Matter has no per-pair collider callbacks, so listen
+    // to the world's collisionstart event; any contact involving the bird
+    // (ground OR a pipe) ends the game.
+    this.matter.world.on('collisionstart', this.handleCollision, this);
 
     // --- Input ---
     this.input.on('pointerdown', () => {
@@ -142,6 +150,23 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.groundScrollX = 0;
+  }
+
+  // ────────────────────────────────────────────
+  // Collision dispatch
+  // ────────────────────────────────────────────
+
+  handleCollision(event) {
+    if (this.isGameOver) return;
+    for (const pair of event.pairs) {
+      const a = pair.bodyA.gameObject;
+      const b = pair.bodyB.gameObject;
+      // Any contact that involves the bird (ground or pipe) ends the run.
+      if (a === this.bird || b === this.bird) {
+        this.onGameOver();
+        return;
+      }
+    }
   }
 
   // ────────────────────────────────────────────
@@ -222,12 +247,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   _createPipeRect(x, y, w, h) {
-    // Invisible physics rectangle — visual is a separate Graphics we move in sync.
+    // Invisible physics rectangle — visual is a separate Graphics we move in
+    // sync. As a Matter sensor it detects the bird without being pushed, and
+    // with gravity/air-friction disabled it scrolls left at a constant speed.
     const rect = this.add.rectangle(x, y, w, h, 0x000000, 0);
-    this.physics.add.existing(rect, false);
-    rect.body.allowGravity = false;
-    rect.body.setVelocityX(PIPE_SPEED);
-    rect.body.setImmovable(true);
+    this.matter.add.gameObject(rect);
+    rect.setSensor(true);
+    rect.setIgnoreGravity(true);
+    rect.setFrictionAir(0);
+    rect.setFixedRotation();
+    rect.setVelocityX(PIPE_SPEED);
     rect.setDepth(3);
     return rect;
   }
@@ -240,7 +269,16 @@ export class GameScene extends Phaser.Scene {
     this.startCard.destroy();
     if (this.floatTween) this.floatTween.stop();
 
-    this.bird.body.allowGravity = true;
+    // Attach the Matter body now that the bird starts falling. A centered
+    // rectangle (~0.8w × 0.7h) mirrors the old Arcade hit-box; fixed rotation
+    // keeps us in charge of the tilt, and zero air-friction preserves the
+    // manual gravity integration exactly.
+    this.matter.add.gameObject(this.bird);
+    this.bird.setRectangle(this.bird.width * 0.8, this.bird.height * 0.7, {
+      frictionAir: 0,
+    });
+    this.bird.setFixedRotation();
+    this.bird.setVelocity(0, 0);
 
     this.pipeTimer = this.time.addEvent({
       delay: PIPE_INTERVAL,
@@ -253,7 +291,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   flap() {
-    this.bird.body.setVelocityY(FLAP_VELOCITY);
+    this.bird.setVelocityY(FLAP_VELOCITY);
   }
 
   spawnPipePair() {
@@ -296,9 +334,7 @@ export class GameScene extends Phaser.Scene {
       { gfx: botCapGfx,  body: botCap  },
     ];
 
-    parts.forEach((part) => {
-      this.physics.add.overlap(this.bird, part, this.onGameOver, null, this);
-    });
+    // Collision with any part is handled globally in handleCollision().
 
     this.pipeGroups.push({
       parts,
@@ -313,26 +349,32 @@ export class GameScene extends Phaser.Scene {
 
     const W = this.cameras.main.width;
 
-    // Scroll clouds + ground
+    // Scroll clouds + ground. PIPE_SPEED is now px/step, i.e. the exact
+    // per-frame pixel travel of the pipes, so no extra /60 is needed here.
     if (this.gameStarted) {
-      this.cloudOffset += Math.abs(PIPE_SPEED) * 0.15 / 60;
+      this.cloudOffset += Math.abs(PIPE_SPEED) * 0.15;
       this._drawClouds();
 
-      this.groundScrollX += Math.abs(PIPE_SPEED) / 60;
+      this.groundScrollX += Math.abs(PIPE_SPEED);
       this._drawGround(this.groundScrollX);
     }
 
-    // Bird rotation based on velocity
     if (this.gameStarted) {
-      const vy = this.bird.body.velocity.y;
-      const targetAngle = Phaser.Math.Clamp(vy / 6, -30, 90);
-      this.bird.angle = targetAngle;
-    }
+      // Manual gravity integration (px/step) — keeps full control of the fall
+      // curve and matches the old Arcade tuning.
+      this.bird.setVelocityY(this.bird.body.velocity.y + GRAVITY_STEP);
 
-    // Clamp bird at top
-    if (this.bird.y < -50) {
-      this.bird.y = -50;
-      this.bird.body.setVelocityY(0);
+      // Bird rotation based on velocity. vy is px/step (~old px/s ÷ 60), so the
+      // old `vy / 6` becomes `vy * 10` to keep the same tilt range.
+      const vy = this.bird.body.velocity.y;
+      const targetAngle = Phaser.Math.Clamp(vy * 10, -30, 90);
+      this.bird.angle = targetAngle;
+
+      // Clamp bird at top
+      if (this.bird.y < -50) {
+        this.bird.setPosition(this.bird.x, -50);
+        this.bird.setVelocityY(0);
+      }
     }
 
     // Pipe group update
@@ -379,12 +421,16 @@ export class GameScene extends Phaser.Scene {
 
     this.pipeGroups.forEach((pg) => {
       pg.parts.forEach((p) => {
-        if (p.active && p.body) p.body.setVelocityX(0);
+        if (p.active && p.body) p.setVelocity(0, 0);
       });
     });
 
-    this.bird.body.allowGravity = false;
-    this.bird.body.setVelocity(0, 0);
+    // Freeze the bird in place: isGameOver already halts manual gravity, and a
+    // static body guarantees it stops even if it was mid-fall.
+    if (this.bird.body) {
+      this.bird.setVelocity(0, 0);
+      this.bird.setStatic(true);
+    }
 
     const launchGameOver = () => {
       if (this._gameOverReady) {

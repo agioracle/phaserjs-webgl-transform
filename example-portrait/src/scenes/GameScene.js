@@ -17,6 +17,14 @@ const ROW_COLORS = [
   { fill: 0xa86cff, dark: 0x5b2fb0, hi: 0xd8bcff }, // purple
 ];
 
+// Matter velocity is expressed in pixels-per-step (~value * 60 = px/second at
+// 60Hz), so these are roughly the old Arcade px/second values divided by 60.
+const BALL_LAUNCH_VY = -8.5;   // upward launch speed  (~-510 px/s)
+const BALL_LAUNCH_VX = 3.5;    // horizontal launch spread (±210 px/s)
+const BALL_MIN_SPEED = 8;      // enforced speed on paddle bounce (~480 px/s)
+const BALL_MAX_SPEED = 13;     // speed cap (~780 px/s)
+const BALL_MIN_VY = 1.4;       // avoid near-horizontal trajectories (~84 px/s)
+
 export class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GameScene' });
@@ -62,70 +70,99 @@ export class GameScene extends Phaser.Scene {
     this.gameOver = false;
     this.waiting = false;
 
+    // ── World bounds — left / right / top walls only; bottom is OPEN so a
+    //    missed ball can fall out and cost a life (replaces Arcade's
+    //    checkCollision.down = false). ──
+    this.matter.world.setBounds(0, 0, W, H, 64, true, true, true, false);
+
     // ── Paddle — rounded casual look ──
     const paddleW = 170;
     const paddleH = 32;
     const paddleY = H - sa.bottom - 110;
+    this.paddleY = paddleY;
+    this.paddleHalfW = paddleW / 2;
+    this.worldW = W;
 
     // Visual for paddle (rounded graphics)
     this.paddleGfx = this.add.graphics();
     this.drawPaddle(this.paddleGfx, paddleW, paddleH);
 
-    // Physics body stays a simple rectangle for reliable collision
+    // Physics body stays a simple rectangle for reliable collision. A static
+    // Matter body still reflects the dynamic ball and is never pushed, while we
+    // reposition it every pointer move to follow the finger.
     this.paddle = this.add.rectangle(W / 2, paddleY, paddleW, paddleH, 0x000000, 0);
-    this.physics.add.existing(this.paddle, false);
-    this.paddle.body.setImmovable(true);
-    this.paddle.body.allowGravity = false;
-    this.paddle.body.setCollideWorldBounds(true);
+    this.matter.add.gameObject(this.paddle, { isStatic: true });
 
     // ── Ball ──
     const ballY = paddleY - 30;
     this.ball = this.add.image(W / 2, ballY, 'ball');
     this.ball.setDisplaySize(32, 32);
-    this.physics.add.existing(this.ball, false);
-    this.ball.body.setCollideWorldBounds(true, 1, 1, false);
-    this.physics.world.checkCollision.down = false;
-    this.ball.body.setBounce(1, 1);
-    this.ball.body.allowGravity = false;
-    this.ball.body.setMaxVelocity(700, 700);
-    this.ball.body.setCircle(16);
+    this.matter.add.gameObject(this.ball);
+    // Circle body (radius 16 → 32px diameter), perfectly elastic and
+    // frictionless so it keeps its speed exactly like the old Arcade ball.
+    this.ball.setCircle(16, { restitution: 1, friction: 0, frictionAir: 0 });
+    this.ball.setFixedRotation();
 
     // Subtle glow behind the ball
     this.ballGlow = this.add.graphics();
     this.ballGlow.setDepth(this.ball.depth - 1);
 
     // ── Bricks ──
-    this.bricks = this.physics.add.staticGroup();
-    this.brickVisuals = new Map(); // physics body -> Graphics
+    this.bricks = new Set();          // set of active brick GameObjects
+    this.brickVisuals = new Map();    // brick GameObject -> Graphics
     this.buildBricks(W, sa.top);
 
     // ── HUD panel ──
     this.buildHud(W, sa);
 
-    // ── Collisions ──
-    this.physics.add.collider(this.ball, this.paddle, this.hitPaddle, null, this);
-    this.physics.add.collider(this.ball, this.bricks, this.hitBrick, null, this);
+    // ── Collisions — Matter has no per-pair collider callbacks, so listen to
+    //    the world's collisionstart event and dispatch based on which body is
+    //    the ball and what it hit. ──
+    this.matter.world.on('collisionstart', this.handleCollision, this);
 
     // ── Input ──
     this.input.on('pointermove', (pointer) => {
       if (this.gameOver) return;
-      this.paddle.x = Phaser.Math.Clamp(pointer.x, paddleW / 2, W - paddleW / 2);
-      this.paddle.body.updateFromGameObject();
-      if (this.waiting) this.ball.x = this.paddle.x;
+      const px = Phaser.Math.Clamp(pointer.x, this.paddleHalfW, this.worldW - this.paddleHalfW);
+      this.paddle.setPosition(px, this.paddleY);
+      if (this.waiting) this.ball.setPosition(this.paddle.x, this.ball.y);
     });
 
     this.input.on('pointerdown', (pointer) => {
       if (this.gameOver) return;
       if (this.waiting) {
         this.waiting = false;
-        this.ball.body.setVelocity(Phaser.Math.Between(-200, 200), -500);
+        this.ball.setVelocity(Phaser.Math.FloatBetween(-BALL_LAUNCH_VX, BALL_LAUNCH_VX), BALL_LAUNCH_VY);
       }
-      this.paddle.x = Phaser.Math.Clamp(pointer.x, paddleW / 2, W - paddleW / 2);
-      this.paddle.body.updateFromGameObject();
+      const px = Phaser.Math.Clamp(pointer.x, this.paddleHalfW, this.worldW - this.paddleHalfW);
+      this.paddle.setPosition(px, this.paddleY);
     });
 
     // Launch ball immediately
-    this.ball.body.setVelocity(Phaser.Math.Between(-200, 200), -500);
+    this.ball.setVelocity(Phaser.Math.FloatBetween(-BALL_LAUNCH_VX, BALL_LAUNCH_VX), BALL_LAUNCH_VY);
+  }
+
+  // ────────────────────────────────────────────
+  // Collision dispatch
+  // ────────────────────────────────────────────
+
+  handleCollision(event) {
+    if (this.gameOver) return;
+    for (const pair of event.pairs) {
+      const a = pair.bodyA.gameObject;
+      const b = pair.bodyB.gameObject;
+      // Figure out which side is the ball; the other side is what it hit.
+      let other = null;
+      if (a === this.ball) other = b;
+      else if (b === this.ball) other = a;
+      else continue; // neither body is the ball (e.g. wall pairs)
+
+      if (other === this.paddle) {
+        this.hitPaddle(this.ball, this.paddle);
+      } else if (other && this.bricks.has(other)) {
+        this.hitBrick(this.ball, other);
+      }
+    }
   }
 
   // ────────────────────────────────────────────
@@ -183,11 +220,11 @@ export class GameScene extends Phaser.Scene {
         const y = startY + row * (brickH + padY);
         const palette = ROW_COLORS[row];
 
-        // Physics body (invisible rectangle)
+        // Physics body (invisible static rectangle)
         const brick = this.add.rectangle(x, y, brickW, brickH, 0x000000, 0);
-        this.bricks.add(brick);
-        brick.body.updateFromGameObject();
+        this.matter.add.gameObject(brick, { isStatic: true });
         brick.setData('points', (rows - row) * 10);
+        this.bricks.add(brick);
 
         // Visual graphics overlay (attached at same x/y)
         const gfx = this.add.graphics();
@@ -239,14 +276,16 @@ export class GameScene extends Phaser.Scene {
   hitPaddle(ball, paddle) {
     this.sound.play('ball_hit', { volume: 0.3 });
     const diff = ball.x - paddle.x;
-    const norm = diff / (paddle.width / 2);
+    const norm = Phaser.Math.Clamp(diff / (paddle.width / 2), -1, 1);
     const angle = norm * 60;
     const speed = Math.max(
       Math.sqrt(ball.body.velocity.x ** 2 + ball.body.velocity.y ** 2),
-      400
+      BALL_MIN_SPEED
     );
     const rad = Phaser.Math.DegToRad(angle - 90);
-    ball.body.setVelocity(Math.cos(rad) * speed, Math.sin(rad) * speed);
+    // angle-90 stays in [-150,-30] so sin() is always negative → ball always
+    // goes upward, which also prevents it from sticking to the paddle.
+    ball.setVelocity(Math.cos(rad) * speed, Math.sin(rad) * speed);
   }
 
   hitBrick(ball, brick) {
@@ -267,14 +306,15 @@ export class GameScene extends Phaser.Scene {
       });
       this.brickVisuals.delete(brick);
     }
+    this.bricks.delete(brick);
     brick.destroy();
 
     // Speed up slightly
     const vx = ball.body.velocity.x;
     const vy = ball.body.velocity.y;
-    ball.body.setVelocity(vx * 1.01, vy * 1.01);
+    ball.setVelocity(vx * 1.01, vy * 1.01);
 
-    if (this.bricks.countActive() === 0) {
+    if (this.bricks.size === 0) {
       this.winGame();
     }
   }
@@ -307,16 +347,24 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Cap the ball speed (Matter has no setMaxVelocity, so clamp manually)
+    const v = this.ball.body.velocity;
+    const sp = Math.sqrt(v.x * v.x + v.y * v.y);
+    if (sp > BALL_MAX_SPEED) {
+      const k = BALL_MAX_SPEED / sp;
+      this.ball.setVelocity(v.x * k, v.y * k);
+    }
+
     // Prevent ball from going purely horizontal
-    if (!this.waiting && Math.abs(this.ball.body.velocity.y) < 80) {
-      this.ball.body.velocity.y = this.ball.body.velocity.y < 0 ? -80 : 80;
+    if (!this.waiting && Math.abs(this.ball.body.velocity.y) < BALL_MIN_VY) {
+      this.ball.setVelocityY(this.ball.body.velocity.y < 0 ? -BALL_MIN_VY : BALL_MIN_VY);
     }
   }
 
   resetBall() {
     this.waiting = true;
     this.ball.setPosition(this.paddle.x, this.paddle.y - 30);
-    this.ball.body.setVelocity(0, 0);
+    this.ball.setVelocity(0, 0);
   }
 
   winGame() {
@@ -329,7 +377,7 @@ export class GameScene extends Phaser.Scene {
 
   endRound(won) {
     this.gameOver = true;
-    this.ball.body.setVelocity(0, 0);
+    this.ball.setVelocity(0, 0);
 
     const launchGameOver = () => {
       if (this._gameOverReady) {

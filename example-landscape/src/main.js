@@ -21,11 +21,13 @@ const config = {
         height: 750,
       },
   physics: {
-    default: 'arcade',
-    arcade: {
+    default: 'matter',
+    matter: {
+      // World gravity is kept at zero; the bird's fall is integrated manually
+      // in GameScene.update() (in px/step units) so the Flappy-Bird feel maps
+      // 1:1 to the old Arcade tuning and stays fully under our control.
+      gravity: { x: 0, y: 0 },
       debug: false,
-      gravity: { y: 1200 },
-      checkCollision: { up: true, down: true, left: true, right: true },
     },
   },
   scene: [BootScene], // Only BootScene in main bundle; other scenes loaded from subpackages
