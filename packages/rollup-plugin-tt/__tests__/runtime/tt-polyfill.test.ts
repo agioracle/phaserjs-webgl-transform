@@ -38,6 +38,9 @@ function loadInSandbox(): any {
   sandbox.String = String;
   sandbox.TextEncoder = TextEncoder;
   sandbox.TextDecoder = TextDecoder;
+  // The tt-adapter exposes btoa/atob; the polyfill prefers btoa for base64.
+  sandbox.btoa = (s: string) => Buffer.from(s, 'binary').toString('base64');
+  sandbox.atob = (s: string) => Buffer.from(s, 'base64').toString('binary');
   // tt-adapter-style URL: its object-URL statics only work with the adapter's
   // private Blob, so from game code they are effectively unusable.
   sandbox.URL = class {
@@ -50,6 +53,13 @@ function loadInSandbox(): any {
 
   vm.runInNewContext(POLYFILL_SRC, sandbox, { filename: 'tt-polyfill.js' });
   return sandbox;
+}
+
+/** Decode a data:<type>;base64,<...> URL back to its UTF-8 text. */
+function decodeDataUrl(url: string): { type: string; text: string } {
+  const m = /^data:(.*);base64,(.*)$/.exec(url);
+  if (!m) throw new Error('not a base64 data URL: ' + url);
+  return { type: m[1], text: Buffer.from(m[2], 'base64').toString('utf-8') };
 }
 
 describe('tt-polyfill runtime (Blob + URL)', () => {
@@ -68,27 +78,41 @@ describe('tt-polyfill runtime (Blob + URL)', () => {
     expect(blob.size).toBe(2 + 3);
   });
 
-  it('createObjectURL returns a ttblob:// id that round-trips via getBlobData', () => {
+  it('createObjectURL returns a loadable data: URL carrying the blob bytes', () => {
     const g = loadInSandbox();
-    const blob = new g.Blob(['data']);
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    const blob = new g.Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = g.URL.createObjectURL(blob);
-    expect(url).toMatch(/^ttblob:\/\//);
-    expect(g.__ttGetBlobData(url)).toBe(blob);
+    // Must be a data URL (native tt.createImage() can load it), NOT a synthetic
+    // blob:/ttblob: scheme that the Douyin image cannot resolve.
+    expect(url).toMatch(/^data:image\/svg\+xml;charset=utf-8;base64,/);
+    const decoded = decodeDataUrl(url);
+    expect(decoded.type).toBe('image/svg+xml;charset=utf-8');
+    expect(decoded.text).toBe(svg);
   });
 
-  it('revokeObjectURL removes the stored blob', () => {
+  it('createObjectURL round-trips binary bytes exactly', () => {
     const g = loadInSandbox();
-    const blob = new g.Blob(['data']);
+    const bytes = new Uint8Array([0, 255, 16, 128, 1, 2, 3, 254]);
+    const blob = new g.Blob([bytes.buffer], { type: 'application/octet-stream' });
     const url = g.URL.createObjectURL(blob);
-    g.URL.revokeObjectURL(url);
-    expect(g.__ttGetBlobData(url)).toBeNull();
+    const m = /^data:application\/octet-stream;base64,(.*)$/.exec(url)!;
+    expect(m).toBeTruthy();
+    const back = new Uint8Array(Buffer.from(m[1], 'base64'));
+    expect(Array.from(back)).toEqual(Array.from(bytes));
   });
 
-  it('issues distinct ids for successive createObjectURL calls', () => {
+  it('revokeObjectURL is a safe no-op (data URLs hold no resources)', () => {
     const g = loadInSandbox();
-    const u1 = g.URL.createObjectURL(new g.Blob(['a']));
-    const u2 = g.URL.createObjectURL(new g.Blob(['b']));
-    expect(u1).not.toBe(u2);
+    const url = g.URL.createObjectURL(new g.Blob(['data']));
+    expect(() => g.URL.revokeObjectURL(url)).not.toThrow();
+  });
+
+  it('does not leave a ttblob:// scheme or a blob store on the global', () => {
+    const g = loadInSandbox();
+    const url = g.URL.createObjectURL(new g.Blob(['x']));
+    expect(url.startsWith('ttblob://')).toBe(false);
+    expect(g.__ttGetBlobData).toBeUndefined();
   });
 
   it('Blob.slice and Blob.text work', async () => {
@@ -99,12 +123,32 @@ describe('tt-polyfill runtime (Blob + URL)', () => {
     await expect(blob.text()).resolves.toBe('hello world');
   });
 
-  it('is idempotent — re-running the script does not reset the store', () => {
+  it('base64-encodes without btoa (manual fallback path)', () => {
+    // Build a sandbox WITHOUT btoa to exercise the manual encoder.
+    const sandbox: any = {};
+    sandbox.GameGlobal = sandbox;
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    sandbox.Uint8Array = Uint8Array;
+    sandbox.ArrayBuffer = ArrayBuffer;
+    sandbox.Promise = Promise;
+    sandbox.String = String;
+    sandbox.TextEncoder = TextEncoder;
+    sandbox.TextDecoder = TextDecoder;
+    // No btoa / atob on purpose.
+    vm.runInNewContext(POLYFILL_SRC, sandbox, { filename: 'tt-polyfill.js' });
+
+    const blob = new sandbox.Blob(['hello'], { type: 'text/plain' });
+    const url = sandbox.URL.createObjectURL(blob);
+    expect(url).toBe('data:text/plain;base64,' + Buffer.from('hello').toString('base64'));
+  });
+
+  it('is idempotent — re-running the script does not throw or reset globals', () => {
     const g = loadInSandbox();
-    const url = g.URL.createObjectURL(new g.Blob(['x']));
+    const firstBlob = g.Blob;
     // Run the self-injecting script again in the same context.
     vm.runInNewContext(POLYFILL_SRC, g, { filename: 'tt-polyfill.js' });
-    expect(g.__ttGetBlobData(url)).not.toBeNull();
     expect(g.__ttPolyfillInjected).toBe(true);
+    expect(g.Blob).toBe(firstBlob);
   });
 });

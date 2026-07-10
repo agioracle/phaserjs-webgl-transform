@@ -189,7 +189,7 @@ function mergeObjectProperties(
     objExpr.properties.push(buildDefaultAudio());
   }
 
-  // Handle 'scale' property — force NONE mode for WeChat Mini-Game
+  // Handle 'scale' property — force NONE mode for Douyin Mini-Game
   // (the canvas IS the screen, no DOM parent to scale into)
   if (existingProps.has('scale')) {
     const scaleProp = existingProps.get('scale')!;
@@ -230,7 +230,7 @@ function mergeObjectProperties(
 
   // Handle 'loader' property — inject imageLoadType: 'HTMLImageElement'
   // This tells Phaser to load images via Image.src directly instead of XHR+Blob,
-  // which works natively with wx.createImage() for local file paths.
+  // which works natively with tt.createImage() for local file paths.
   if (existingProps.has('loader')) {
     const loaderProp = existingProps.get('loader')!;
     if (t.isObjectExpression(loaderProp.value)) {
@@ -321,7 +321,7 @@ function isPhaserGameNew(node: t.NewExpression): boolean {
   );
 }
 
-export function transformGameConfig(code: string, target: 'wx' | 'h5' = 'wx'): TransformResult {
+export function transformGameConfig(code: string, target: 'tt' | 'h5' = 'tt'): TransformResult {
   const warnings: string[] = [];
   const isH5 = target === 'h5';
 
@@ -342,7 +342,7 @@ export function transformGameConfig(code: string, target: 'wx' | 'h5' = 'wx'): T
     NewExpression(path: NodePath<t.NewExpression>) {
       if (!isPhaserGameNew(path.node)) return;
 
-      // H5 target: skip WeChat-specific config transforms (GameGlobal.__wxCanvas,
+      // H5 target: skip the mini-game config transforms (window.canvas,
       // forced scale/audio/loader overrides). Only inject H5 scale and __initRemoteAssetLoader.
       if (isH5) {
         const args = path.node.arguments;

@@ -8,10 +8,17 @@
  * `this.load.svg()` / `this.load.htmlTexture()`, and `Features.file` detection.
  * Without this shim those paths throw `ReferenceError: Blob is not defined`.
  *
+ * Critically, Phaser's `File.createObjectURL` does
+ * `image.src = URL.createObjectURL(blob)`. The Douyin image (tt.createImage())
+ * cannot load a synthetic `blob:`/`ttblob:` scheme, so `createObjectURL` here
+ * returns a real `data:<type>;base64,<...>` URL — which the native image loads
+ * directly (base64 is a supported adapter capability). This is what makes the
+ * SVG / HTMLTexture load paths actually work, not just stop throwing.
+ *
  * This file is a self-injecting script (mirrors tt-adapter.js), loaded via
  * `require('./tt-polyfill.js')` right AFTER the adapter. It EXTENDS the runtime
  * without modifying tt-adapter.js: it installs a matched TtBlob + TtURL pair on
- * the globals so the Blob → createObjectURL pipeline is internally consistent.
+ * the globals so the Blob → createObjectURL → image.src pipeline works.
  *
  * Design mirrors the WeChat adapter's polyfills/blob-url.js (WxBlob / WxURL).
  */
@@ -30,9 +37,6 @@
     return;
   }
   _global.__ttPolyfillInjected = true;
-
-  var _blobCounter = 0;
-  var _blobStore = new Map();
 
   /**
    * Minimal Blob polyfill that stores all parts merged into a single
@@ -127,17 +131,49 @@
     return new Uint8Array(bytes);
   }
 
-  /**
-   * Retrieve the stored TtBlob for a ttblob:// URL. Exposed on the global for
-   * advanced use (e.g. a custom loader that needs the raw bytes).
-   */
-  function getBlobData(url) {
-    return _blobStore.get(url) || null;
+  var _B64 =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+  // Base64-encode an ArrayBuffer. Prefers the runtime's btoa when available
+  // (the tt-adapter exposes it), otherwise falls back to a manual encoder.
+  function _base64FromBuffer(buffer) {
+    var view = new Uint8Array(buffer);
+    if (typeof btoa === 'function') {
+      var binary = '';
+      // Chunk to avoid String.fromCharCode.apply argument-length limits.
+      var CHUNK = 0x8000;
+      for (var k = 0; k < view.length; k += CHUNK) {
+        binary += String.fromCharCode.apply(
+          null,
+          view.subarray(k, k + CHUNK)
+        );
+      }
+      return btoa(binary);
+    }
+    var out = '';
+    var i = 0;
+    for (; i + 2 < view.length; i += 3) {
+      var n = (view[i] << 16) | (view[i + 1] << 8) | view[i + 2];
+      out +=
+        _B64[(n >> 18) & 63] +
+        _B64[(n >> 12) & 63] +
+        _B64[(n >> 6) & 63] +
+        _B64[n & 63];
+    }
+    var rem = view.length - i;
+    if (rem === 1) {
+      var a = view[i] << 16;
+      out += _B64[(a >> 18) & 63] + _B64[(a >> 12) & 63] + '==';
+    } else if (rem === 2) {
+      var b = (view[i] << 16) | (view[i + 1] << 8);
+      out += _B64[(b >> 18) & 63] + _B64[(b >> 12) & 63] + _B64[(b >> 6) & 63] + '=';
+    }
+    return out;
   }
 
   // Preserve the adapter's existing URL (it provides instance parsing +
-  // searchParams). We only augment/replace the object-URL statics so they work
-  // with OUR TtBlob. If no URL exists, provide a minimal constructor.
+  // searchParams). We only augment/replace the object-URL statics. If no URL
+  // exists, provide a minimal constructor.
   var _ExistingURL = _global.URL || (typeof URL !== 'undefined' ? URL : null);
 
   var TtURL;
@@ -156,21 +192,37 @@
     };
   }
 
-  // createObjectURL — store the blob and return a ttblob:// URI.
+  // createObjectURL — return a `data:` URL, NOT a synthetic blob scheme.
+  //
+  // Phaser's File.createObjectURL does `image.src = URL.createObjectURL(blob)`
+  // (loader/File.js) for SVG / HTMLTexture. The Douyin image (tt.createImage())
+  // cannot load a made-up `blob:`/`ttblob:` scheme, but it CAN load a data URL
+  // (base64 is a supported capability). So encode the blob's bytes into a
+  // `data:<type>;base64,<...>` URL that the native image loads directly.
   TtURL.createObjectURL = function (blob) {
-    var id = 'ttblob://' + (++_blobCounter);
-    _blobStore.set(id, blob);
-    return id;
+    try {
+      var buffer =
+        blob && blob._buffer
+          ? blob._buffer
+          : blob instanceof ArrayBuffer
+          ? blob
+          : null;
+      if (!buffer) {
+        return '';
+      }
+      var type = (blob && blob.type) || 'application/octet-stream';
+      return 'data:' + type + ';base64,' + _base64FromBuffer(buffer);
+    } catch (e) {
+      return '';
+    }
   };
 
-  // revokeObjectURL — drop the stored blob.
-  TtURL.revokeObjectURL = function (url) {
-    _blobStore.delete(url);
-  };
+  // revokeObjectURL — data URLs hold no resources, so this is a safe no-op.
+  TtURL.revokeObjectURL = function () {};
 
   // --- Attach to the runtime globals (extension only) ---
   // Blob is missing entirely from the adapter — always install ours.
-  // URL exists but its object-URL statics are now TtBlob-aware.
+  // URL exists but its object-URL statics now produce loadable data URLs.
   function _attach(target) {
     if (!target) return;
     try {
@@ -182,11 +234,6 @@
       target.URL = TtURL;
     } catch (e) {
       /* read-only — ignore */
-    }
-    try {
-      target.__ttGetBlobData = getBlobData;
-    } catch (e) {
-      /* ignore */
     }
   }
 

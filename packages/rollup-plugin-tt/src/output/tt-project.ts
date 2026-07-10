@@ -49,10 +49,11 @@ export function generateTtProject(config: TtProjectConfig): void {
 
   // game.js
   // Douyin develops "as H5": the tt-adapter is a self-injecting IIFE that,
-  // once required, populates GameGlobal with window/document/canvas/Image/...
-  // and creates the on-screen canvas as GameGlobal.canvas. So game.js:
+  // once required, populates the runtime globals with
+  // window/document/canvas/Image/... and mounts the on-screen canvas as
+  // window.canvas. So game.js:
   //   Stage 1: require tt-adapter FIRST, then show a WebGL splash on
-  //            GameGlobal.canvas (the same canvas Phaser will reuse), while
+  //            window.canvas (the same canvas Phaser will reuse), while
   //            the engine subpackage downloads in parallel.
   //   Stage 2: once engine is ready + splash min-duration elapsed, clean up
   //            the splash GL state and require engine + game-bundle.

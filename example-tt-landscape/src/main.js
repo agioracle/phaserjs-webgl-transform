@@ -4,7 +4,7 @@ import { BootScene } from './scenes/BootScene.js';
 // In browser (H5) the canvas must be fit to the viewport so that
 // Phaser's pointer coordinates stay in sync with CSS pixels; otherwise
 // clicks land on an offset area (top-left sliver) of the visible canvas.
-// In WeChat mini-game the canvas is managed by the platform, so use NONE.
+// In Douyin mini-game the canvas is managed by the platform, so use NONE.
 const isTtGame = typeof tt !== 'undefined' && typeof tt.getSystemInfoSync === 'function';
 
 const config = {

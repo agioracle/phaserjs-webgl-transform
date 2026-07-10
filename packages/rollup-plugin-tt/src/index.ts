@@ -59,12 +59,10 @@ export function phaserTtTransform(options: PhaserTtTransformOptions): Plugin {
 
   const collectedAssetRefs: AssetReference[] = [];
 
-  // The game-config transform shares the WeChat implementation's target
-  // vocabulary internally: 'wx' selects the mini-game branch (WEBGL, canvas,
-  // NONE scale, disableWebAudio, imageLoadType), 'h5' selects the browser
-  // branch. For Douyin the mini-game branch is identical except that the
-  // canvas resolves to GameGlobal.canvas (set by tt-adapter).
-  const transformTarget: 'wx' | 'h5' = target === 'h5' ? 'h5' : 'wx';
+  // The game-config transform takes the same target vocabulary as this plugin:
+  // 'tt' selects the mini-game branch (WEBGL, window.canvas, NONE scale,
+  // disableWebAudio, imageLoadType), 'h5' selects the browser branch.
+  const transformTarget: 'tt' | 'h5' = target === 'h5' ? 'h5' : 'tt';
 
   return {
     name: 'phaser-tt-transform',
