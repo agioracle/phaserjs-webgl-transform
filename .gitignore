@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-wx/
+dist-tt/
 dist-h5/
 *.log
 .DS_Store

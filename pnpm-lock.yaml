@@ -11,6 +11,9 @@ importers:
       '@aspect/cli':
         specifier: workspace:*
         version: link:packages/cli
+      '@aspect/cli-tt':
+        specifier: workspace:*
+        version: link:packages/cli-tt
 
   packages/adapter:
     devDependencies:
@@ -61,7 +64,87 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@25.5.0)
 
+  packages/cli-tt:
+    dependencies:
+      '@rollup/plugin-commonjs':
+        specifier: ^29.0.2
+        version: 29.0.2(rollup@4.59.0)
+      '@rollup/plugin-node-resolve':
+        specifier: ^16.0.3
+        version: 16.0.3(rollup@4.59.0)
+      chalk:
+        specifier: ^5.3.0
+        version: 5.6.2
+      commander:
+        specifier: ^12.1.0
+        version: 12.1.0
+      esbuild:
+        specifier: ^0.27.4
+        version: 0.27.4
+      inquirer:
+        specifier: ^9.3.7
+        version: 9.3.8(@types/node@25.5.0)
+      ora:
+        specifier: ^8.1.1
+        version: 8.2.0
+      rollup:
+        specifier: ^4.59.0
+        version: 4.59.0
+    devDependencies:
+      '@aspect/rollup-plugin-tt':
+        specifier: workspace:*
+        version: link:../rollup-plugin-tt
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(postcss@8.5.8)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.5.0)
+
   packages/rollup-plugin:
+    dependencies:
+      '@babel/generator':
+        specifier: ^7.26.3
+        version: 7.29.1
+      '@babel/parser':
+        specifier: ^7.26.3
+        version: 7.29.2
+      '@babel/traverse':
+        specifier: ^7.26.4
+        version: 7.29.0
+      '@babel/types':
+        specifier: ^7.26.3
+        version: 7.29.0
+    devDependencies:
+      '@types/babel__generator':
+        specifier: ^7.27.0
+        version: 7.27.0
+      '@types/babel__traverse':
+        specifier: ^7.28.0
+        version: 7.28.0
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      rollup:
+        specifier: ^4.28.1
+        version: 4.59.0
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(postcss@8.5.8)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/rollup-plugin-tt:
     dependencies:
       '@babel/generator':
         specifier: ^7.26.3

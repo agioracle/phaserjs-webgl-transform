@@ -2,6 +2,8 @@
 
 将 Phaser.js 3.x WebGL 游戏转换为高性能微信小游戏的工具链，同时支持构建 H5 浏览器版本。
 
+> **抖音小游戏**：本仓库同时提供独立的 `phaser-tt` 命令，用法与 `phaser-wx` 完全一致，用于开发发布抖音小游戏。详见下文 [抖音小游戏（`phaser-tt`）](#抖音小游戏phaser-tt) 一节。微信（`phaser-wx`）与抖音（`phaser-tt`）的实现完全隔离，各自独立更新、互不影响。
+
 ## 概述
 
 微信小游戏运行环境没有 DOM / BOM API，而 Phaser.js 重度依赖 `window`、`document`、`Canvas`、`Image`、`Audio` 等浏览器接口。本项目通过三个协同工作的包，自动完成从标准 Web 游戏到微信小游戏的核心适配（渲染、输入、音频、资源加载等），仅安全区域等设备相关的 UI 布局需要少量游戏侧调整：
@@ -630,6 +632,75 @@ create() {
 ```
 
 > **说明**：在没有刘海/挖孔的设备上，`safeArea` 所有 inset 值为 0，布局效果与无适配时一致。
+
+## 抖音小游戏（`phaser-tt`）
+
+除了微信小游戏（`phaser-wx`），本仓库还提供一套**完全独立**的抖音小游戏工具链，命令 `phaser-tt` 的用法与 `phaser-wx` 一一对应。两套工具链的包、示例、配置文件彼此隔离，可各自更新、互不影响。
+
+### 与微信版的对应关系
+
+| | 微信（`phaser-wx`） | 抖音（`phaser-tt`） |
+|---|---|---|
+| CLI 包 | `@aspect/cli` | `@aspect/cli-tt` |
+| 变换插件 | `@aspect/rollup-plugin` | `@aspect/rollup-plugin-tt` |
+| 配置文件 | `phaser-wx.config.json` | `phaser-tt.config.json` |
+| 构建产物目录 | `dist-wx/` | `dist-tt/` |
+| 项目模板 | `example-landscape` / `example-portrait` | `example-tt-landscape` / `example-tt-portrait` |
+| AppID | 以 `wx` 开头 | 抖音 AppID（无前缀限制） |
+
+### 适配机制差异
+
+微信版使用自研的 `@aspect/adapter` polyfill，并在每个 chunk 注入 `window`/`document` 等模块级别名。**抖音版则直接采用抖音官方提供的 `tt-adapter.js`**——它是一个自注入 IIFE，`require` 后会把 `window`/`document`/`canvas`/`Image`/`Audio`/`XMLHttpRequest` 等注入到 `GameGlobal` 全局，因此以「H5 方式」开发即可：
+
+- 生成的 `game.js` 首行 `require('./tt-adapter.js')`，紧接着 `require('./tt-polyfill.js')`（补充 `Blob`/`URL`，见下文），随后加载 `engine` 分包并启动游戏；
+- Phaser 复用适配器挂在全局 `window` 上的屏上画布 `window.canvas`（该引用在抖音开发者工具与真机上均有效；注意 `GameGlobal.canvas` 仅在真机分支存在，开发者工具分支不设置，故统一使用 `window.canvas`）；
+- 远程资源加载器通过 `tt.getFileSystemManager()` 读取 `asset-manifest.json`；
+- 分包异步加载改用 `tt.loadSubpackage`。
+
+其余能力（WebGL 渲染、`disableWebAudio`、资源分包与 CDN 分发、20MB 体积检查、H5 构建）与微信版保持一致。
+
+### tt-adapter 能力边界与补充 polyfill
+
+抖音官方 `tt-adapter` 只实现了 H5 能力的**最小子集**。经核对 Phaser 3.x 源码,在游戏运行路径上真正可能被触发的缺口是 **`Blob` + `URL.createObjectURL`**（`this.load.svg()` / `this.load.htmlTexture()` 加载路径,以及 `Features.file` 检测会用到；官方适配器未暴露可用的 `Blob` 全局）。
+
+因此工具链额外提供一份**补充 polyfill**：`packages/rollup-plugin-tt/src/runtime/tt-polyfill.js`,做法参照微信 `@aspect/adapter` 的 `blob-url.js`,提供配套的 `Blob` + `URL.createObjectURL/revokeObjectURL`。它是一个自注入脚本,由生成的 `game.js` 在 `require('./tt-adapter.js')` **之后**紧接着 `require('./tt-polyfill.js')` 引入 —— **纯扩展,不修改 `tt-adapter.js`**,幂等且对不触发 Blob 的游戏零副作用。
+
+其余缺口经核对 Phaser **不会**触发,无需处理:
+
+- `fetch`：Phaser 全程使用 `XMLHttpRequest`,不用 `fetch`;
+- `TextEncoder` / `MouseEvent`：Phaser 不构造(小游戏用 touch 事件);
+- 图片:注入 `loader.imageLoadType: 'HTMLImageElement'`,走 `new Image()`(Image 受支持),绕开 `Blob`/`URL`;
+- 音频:注入 `audio.disableWebAudio: true`,走 HTML5 `Audio`(受支持);
+- 网络/清单读取:使用受支持的 `XMLHttpRequest` 与 `tt.getFileSystemManager()`。
+
+若游戏自身代码直接调用了 `FileReader` 等仍未覆盖的 API,可按同样方式在 `tt-polyfill.js` 中扩展(无需改动官方 `tt-adapter.js`)。
+
+### 使用方式
+
+```bash
+# 全局链接 phaser-tt 命令
+cd packages/cli-tt && npm link && cd ../..
+phaser-tt --help
+
+# 创建新项目（在其他目录中创建，避免与模板项目冲突）
+phaser-tt new my-douyin-game
+
+# 交互式引导会询问：抖音 AppID、屏幕方向、CDN 地址（可留空）
+
+cd my-douyin-game
+npm install
+npm run dev            # 本地浏览器预览
+npm run build          # 构建抖音小游戏 → dist-tt/（用抖音开发者工具打开）
+npm run build:h5       # 构建 H5 浏览器版本 → dist-h5/
+```
+
+`phaser-tt build` 参数与 `phaser-wx build` 相同，仅默认目标为 `tt`：
+
+```bash
+phaser-tt build                                       # 默认构建抖音小游戏（--target tt）
+phaser-tt build --target h5                           # 构建 H5 浏览器版本
+phaser-tt build --cdn https://cdn.example.com/assets  # 覆盖 CDN 地址
+```
 
 ## License
 

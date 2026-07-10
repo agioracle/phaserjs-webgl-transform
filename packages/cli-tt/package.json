@@ -1,0 +1,32 @@
+{
+  "name": "@aspect/cli-tt",
+  "version": "0.1.0",
+  "description": "CLI tool for converting Phaser.js games to Douyin Mini-Games",
+  "type": "module",
+  "bin": {
+    "phaser-tt": "./dist/index.cjs"
+  },
+  "main": "./dist/index.cjs",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@rollup/plugin-commonjs": "^29.0.2",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "esbuild": "^0.27.4",
+    "inquirer": "^9.3.7",
+    "ora": "^8.1.1",
+    "rollup": "^4.59.0"
+  },
+  "devDependencies": {
+    "@aspect/rollup-plugin-tt": "workspace:*",
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
