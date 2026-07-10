@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import { loadConfig } from '../utils/config.js';
 
 interface BuildOptions {
@@ -45,6 +46,19 @@ function formatSize(bytes: number): string {
 
 const SIZE_LIMIT_ERROR = 20_971_520; // 20MB
 const SIZE_LIMIT_WARN = 16_777_216; // 16MB
+
+
+function assertProjectDependency(packageName: string, projectRoot: string = process.cwd()): string {
+  const projectRequire = createRequire(path.join(projectRoot, 'package.json'));
+  try {
+    return projectRequire.resolve(packageName);
+  } catch {
+    throw new Error(
+      `Cannot resolve dependency "${packageName}" from ${projectRoot}. ` +
+        `Run "npm install" (or "pnpm install") in this project before running phaser-tt build.`
+    );
+  }
+}
 
 /**
  * Build module-scope intro for the Douyin Mini-Game target.
@@ -255,14 +269,20 @@ function resolveRuntimeFile(fileName: string): string {
 }
 
 export async function buildCommand(options: BuildOptions): Promise<void> {
+  const config = loadConfig();
+  const isH5 = options.target === 'h5';
+
+  // Phaser must be resolvable from the game project. If it is missing, Rollup
+  // either emits a broken H5 bundle with an external `Phaser$1` global or fails
+  // later while creating the engine manual chunk. Fail early with an actionable
+  // message instead of producing a bad dist-h5/.
+  assertProjectDependency('phaser');
+
   // Lazy imports: rollup and plugins are external and only needed for build
   const { rollup } = await import('rollup');
   const { phaserTtTransform, scanAssets } = await import('@aspect/rollup-plugin-tt');
   const nodeResolve = (await import('@rollup/plugin-node-resolve')).default;
   const commonjs = (await import('@rollup/plugin-commonjs')).default;
-
-  const config = loadConfig();
-  const isH5 = options.target === 'h5';
 
   if (options.cdn) {
     config.cdn = options.cdn;
@@ -396,6 +416,11 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
         if (chunk.isEntry) {
           code += '\nif (typeof GameGlobal !== "undefined" && typeof Phaser !== "undefined") { GameGlobal.Phaser = Phaser; }\n';
         }
+        // Downlevel to ES2015: the Douyin compiler rejects ES2020 syntax
+        // (nullish coalescing ??, optional chaining ?., etc.). Match the H5
+        // target and the engine chunk, which both esbuild-transform to es2015.
+        const lowered = await esbuildTransform(code, { minify: true, target: 'es2015' });
+        code = lowered.code;
       }
 
       const outPath = path.join(outputDir, fileName);
@@ -442,6 +467,11 @@ export async function buildCommand(options: BuildOptions): Promise<void> {
           );
           sceneCode = sceneCode.replace(pattern, `require('../${rootPrefix}/`);
         }
+        // Downlevel to ES2015 for the Douyin compiler (no ?? / ?. support).
+        // Done after the require() string rewrites above (esbuild preserves
+        // string literals, so the later asset-path replace still matches).
+        const loweredScene = await esbuildTransform(sceneCode, { minify: true, target: 'es2015' });
+        sceneCode = loweredScene.code;
         fs.mkdirSync(path.dirname(outFile), { recursive: true });
         fs.writeFileSync(outFile, sceneCode, 'utf-8');
       }
