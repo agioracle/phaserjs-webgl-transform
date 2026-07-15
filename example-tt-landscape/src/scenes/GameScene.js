@@ -67,18 +67,27 @@ export class GameScene extends Phaser.Scene {
     drawCasualBackground(this, { top: 0x8fd9ff, bottom: 0xfff3d9 });
 
     // --- Clouds (scrolling subtly) ---
+    // Drawn ONCE as a repeating pattern (two wrap-widths wide); update() only
+    // scrolls the graphics via its x transform and wraps — it never clears and
+    // refills every frame. That per-frame Graphics rebuild is costly on the
+    // Douyin iOS renderer, so keep the geometry static and just move it.
     this.cloudGfx = this.add.graphics();
     this.cloudGfx.setDepth(-500);
-    this.cloudOffset = 0;
+    this.cloudWrapW = W + 300;
     this._drawClouds();
 
     // --- Pipes array ---
     this.pipeGroups = [];
 
     // --- Ground ---
+    // Static grass/sand is drawn once and never moves; the scrolling dashes
+    // live in a separate graphics that update() slides via its x transform
+    // (drawn once, no per-frame rebuild).
     this.groundGfx = this.add.graphics();
     this.groundGfx.setDepth(5);
-    this._drawGround(0);
+    this.groundDashGfx = this.add.graphics();
+    this.groundDashGfx.setDepth(5);
+    this._drawGround();
 
     this.groundBody = this.add.rectangle(W / 2, H - GROUND_HEIGHT / 2, W, GROUND_HEIGHT);
     this.groundBody.setAlpha(0);
@@ -148,8 +157,6 @@ export class GameScene extends Phaser.Scene {
       if (!this.gameStarted) this.startGame();
       this.flap();
     });
-
-    this.groundScrollX = 0;
   }
 
   // ────────────────────────────────────────────
@@ -174,56 +181,60 @@ export class GameScene extends Phaser.Scene {
   // ────────────────────────────────────────────
 
   _drawClouds() {
-    const W = this.cameras.main.width;
-    const H = this.cameras.main.height;
     const gfx = this.cloudGfx;
     gfx.clear();
-    // Deterministic cloud positions using modulo of offset for subtle scroll
+    // Deterministic cloud positions. Drawn ONCE as two identical copies offset
+    // by one wrap-width, so update() can scroll cloudGfx.x left and wrap by
+    // cloudWrapW for a seamless, redraw-free loop.
     const items = [
       { x: 100, y: 120, r: 38 },
       { x: 360, y: 80, r: 30 },
       { x: 640, y: 160, r: 44 },
       { x: 900, y: 100, r: 34 },
       { x: 1180, y: 140, r: 40 },
-      { x: 1500, y: 90, r: 36 }, // off-screen; wraps
+      { x: 1500, y: 90, r: 36 },
     ];
-    const wrapW = W + 300;
-    items.forEach((it) => {
-      const x = ((it.x - this.cloudOffset) % wrapW + wrapW) % wrapW - 100;
-      gfx.fillStyle(0xffffff, 0.55);
-      gfx.fillCircle(x, it.y, it.r);
-      gfx.fillCircle(x + it.r * 0.8, it.y + 4, it.r * 0.85);
-      gfx.fillCircle(x - it.r * 0.8, it.y + 6, it.r * 0.75);
-      gfx.fillCircle(x + it.r * 0.2, it.y - it.r * 0.5, it.r * 0.7);
-    });
+    const wrapW = this.cloudWrapW;
+    gfx.fillStyle(0xffffff, 0.55);
+    for (let copy = 0; copy < 2; copy++) {
+      const base = copy * wrapW;
+      items.forEach((it) => {
+        const x = base + it.x - 100;
+        gfx.fillCircle(x, it.y, it.r);
+        gfx.fillCircle(x + it.r * 0.8, it.y + 4, it.r * 0.85);
+        gfx.fillCircle(x - it.r * 0.8, it.y + 6, it.r * 0.75);
+        gfx.fillCircle(x + it.r * 0.2, it.y - it.r * 0.5, it.r * 0.7);
+      });
+    }
   }
 
-  _drawGround(scrollX) {
+  _drawGround() {
     const W = this.cameras.main.width;
     const H = this.cameras.main.height;
-    const gfx = this.groundGfx;
-    gfx.clear();
-
     const groundTop = H - GROUND_HEIGHT;
 
-    // Grass strip
+    // Static grass + sand (full width, never scrolls) — drawn once.
+    const gfx = this.groundGfx;
+    gfx.clear();
     gfx.fillStyle(0x5ad15a, 1);
     gfx.fillRect(0, groundTop, W, 22);
     gfx.fillStyle(0x2d6b1e, 1);
     gfx.fillRect(0, groundTop + 20, W, 6);
-    // Sand base
     gfx.fillStyle(0xfde49e, 1);
     gfx.fillRect(0, groundTop + 26, W, GROUND_HEIGHT - 26);
 
-    // Scrolling dashes
-    gfx.fillStyle(0xf0ca74, 1);
+    // Scrolling dashes — drawn once across enough width to cover the screen
+    // plus one wrap tile; update() slides groundDashGfx.x and wraps by totalW.
     const stripeW = 40;
     const stripeGap = 50;
     const totalW = stripeW + stripeGap;
-    const offset = -(scrollX % totalW);
-    for (let sx = offset; sx < W + totalW; sx += totalW) {
-      gfx.fillRect(sx, groundTop + 42, stripeW, 4);
-      gfx.fillRect(sx + 20, groundTop + 58, stripeW, 4);
+    this.groundDashTotalW = totalW;
+    const dash = this.groundDashGfx;
+    dash.clear();
+    dash.fillStyle(0xf0ca74, 1);
+    for (let sx = 0; sx < W + totalW * 2; sx += totalW) {
+      dash.fillRect(sx, groundTop + 42, stripeW, 4);
+      dash.fillRect(sx + 20, groundTop + 58, stripeW, 4);
     }
   }
 
@@ -349,14 +360,16 @@ export class GameScene extends Phaser.Scene {
 
     const W = this.cameras.main.width;
 
-    // Scroll clouds + ground. PIPE_SPEED is now px/step, i.e. the exact
-    // per-frame pixel travel of the pipes, so no extra /60 is needed here.
+    // Scroll clouds + ground by sliding their (statically drawn) graphics and
+    // wrapping — no per-frame redraw. PIPE_SPEED is px/step.
     if (this.gameStarted) {
-      this.cloudOffset += Math.abs(PIPE_SPEED) * 0.15;
-      this._drawClouds();
+      this.cloudGfx.x -= Math.abs(PIPE_SPEED) * 0.15;
+      if (this.cloudGfx.x <= -this.cloudWrapW) this.cloudGfx.x += this.cloudWrapW;
 
-      this.groundScrollX += Math.abs(PIPE_SPEED);
-      this._drawGround(this.groundScrollX);
+      this.groundDashGfx.x -= Math.abs(PIPE_SPEED);
+      if (this.groundDashGfx.x <= -this.groundDashTotalW) {
+        this.groundDashGfx.x += this.groundDashTotalW;
+      }
     }
 
     if (this.gameStarted) {
