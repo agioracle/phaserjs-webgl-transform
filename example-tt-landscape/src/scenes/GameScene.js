@@ -152,7 +152,14 @@ export class GameScene extends Phaser.Scene {
     this.matter.world.on('collisionstart', this.handleCollision, this);
 
     // --- Input ---
-    this.input.on('pointerdown', () => {
+    // Use a full-screen interactive Zone (a game-object input target) rather
+    // than scene-level this.input.on('pointerdown'): in the Douyin runtime the
+    // scene-level pointerdown does not fire in this scene, whereas game-object
+    // pointer input does (it's the same path MenuScene's button uses). The Zone
+    // handles both "tap to start" and in-game flaps, on every platform.
+    const tapZone = this.add.zone(W / 2, H / 2, W, H).setInteractive();
+    tapZone.setDepth(60);
+    tapZone.on('pointerdown', () => {
       if (this.isGameOver) return;
       if (!this.gameStarted) this.startGame();
       this.flap();
