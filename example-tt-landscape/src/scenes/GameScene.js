@@ -121,6 +121,7 @@ export class GameScene extends Phaser.Scene {
       radius: 18,
     });
     this.hintText = this.add.text(W / 2, this.startCardY, 'TAP TO START', {
+      fontFamily: 'Arial, sans-serif',
       fontSize: '36px',
       fontStyle: 'bold',
       color: '#d08512',

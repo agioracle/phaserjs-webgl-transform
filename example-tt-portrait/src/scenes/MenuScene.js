@@ -96,6 +96,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     this.add.text(W / 2, panelY, 'Swipe or tap to move the paddle.\nBreak every brick to win!', {
+      fontFamily: 'Arial, sans-serif',
       fontSize: '28px',
       color: PALETTE.textSub,
       align: 'center',
@@ -117,6 +118,7 @@ export class MenuScene extends Phaser.Scene {
 
     // --- Subtle "tap to start" hint underneath (pure decoration, blinking) ---
     const hint = this.add.text(W / 2, saTop + saH * 0.88, 'TAP TO START', {
+      fontFamily: 'Arial, sans-serif',
       fontSize: '26px',
       fontStyle: 'bold',
       color: '#3d2a1a',

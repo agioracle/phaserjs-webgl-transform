@@ -80,6 +80,7 @@ export class MenuScene extends Phaser.Scene {
     const hintY = H * 0.70;
     drawPanel(this, W / 2, hintY, 560, 90, { radius: 18 });
     this.add.text(W / 2, hintY, 'Tap to flap. Avoid the pipes!', {
+      fontFamily: 'Arial, sans-serif',
       fontSize: '30px',
       fontStyle: 'bold',
       color: PALETTE.textSub,

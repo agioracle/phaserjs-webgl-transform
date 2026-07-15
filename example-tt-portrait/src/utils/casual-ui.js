@@ -206,6 +206,7 @@ export function createPillButton(scene, x, y, opts = {}) {
   container.add(gfx);
 
   const text = scene.add.text(0, -2, label, {
+    fontFamily: 'Arial, sans-serif',
     fontSize: `${fontSize}px`,
     fontStyle: 'bold',
     color: textColor,
@@ -324,6 +325,7 @@ export function createBadge(scene, x, y, opts = {}) {
   let labelText = null;
   if (label) {
     labelText = scene.add.text(contentLeft, 0, label, {
+      fontFamily: 'Arial, sans-serif',
       fontSize: `${labelSize}px`,
       fontStyle: 'bold',
       color: labelColor,
@@ -332,6 +334,7 @@ export function createBadge(scene, x, y, opts = {}) {
   }
 
   const text = scene.add.text(contentRight, 0, opts.text || '0', {
+    fontFamily: 'Arial, sans-serif',
     fontSize: `${fontSize}px`,
     fontStyle: 'bold',
     color: textColor,
@@ -358,6 +361,7 @@ export function casualText(scene, x, y, content, opts = {}) {
   const align = opts.align ?? 'center';
 
   const t = scene.add.text(x, y, content, {
+    fontFamily: 'Arial, sans-serif',
     fontSize: `${fontSize}px`,
     fontStyle: 'bold',
     color,
