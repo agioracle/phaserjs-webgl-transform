@@ -151,4 +151,151 @@ describe('tt-polyfill runtime (Blob + URL)', () => {
     expect(g.__ttPolyfillInjected).toBe(true);
     expect(g.Blob).toBe(firstBlob);
   });
+
+  it('patches WebGL texImage2D to retry image-like sources via a tt canvas', () => {
+    const calls: any[][] = [];
+    const drawCalls: any[][] = [];
+    const sandbox: any = {};
+    const acceptedCanvas = {
+      width: 0,
+      height: 0,
+      getContext(type: string) {
+        if (type === 'webgl') return gl;
+        if (type !== '2d') return null;
+        return {
+          clearRect: (...args: any[]) => drawCalls.push(['clearRect', ...args]),
+          drawImage: (...args: any[]) => drawCalls.push(['drawImage', ...args]),
+        };
+      },
+    };
+
+    const gl = {
+      texImage2D(...args: any[]) {
+        calls.push(args);
+        const source = args[5];
+        if (args.length === 6 && source !== acceptedCanvas) {
+          throw new TypeError("Failed to execute 'texImage2D' on 'WebGLRenderingContext': Overload resolution failed.");
+        }
+        return 'ok';
+      },
+    };
+
+    sandbox.GameGlobal = sandbox;
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    sandbox.Map = Map;
+    sandbox.WeakSet = WeakSet;
+    sandbox.Proxy = Proxy;
+    sandbox.Uint8Array = Uint8Array;
+    sandbox.ArrayBuffer = ArrayBuffer;
+    sandbox.Promise = Promise;
+    sandbox.String = String;
+    sandbox.TextEncoder = TextEncoder;
+    sandbox.TextDecoder = TextDecoder;
+    sandbox.URL = class {
+      static createObjectURL() {
+        return '';
+      }
+      static revokeObjectURL() {}
+    };
+    sandbox.tt = {
+      createCanvas: () => acceptedCanvas,
+    };
+
+    vm.runInNewContext(POLYFILL_SRC, sandbox, { filename: 'tt-polyfill.js' });
+
+    const canvas = sandbox.tt.createCanvas();
+    const patchedGl = canvas.getContext('webgl');
+    const imageLike = {
+      tagName: 'IMG',
+      src: 'data:image/png;base64,abc',
+      width: 4,
+      height: 4,
+    };
+
+    expect(
+      patchedGl.texImage2D('TEXTURE_2D', 0, 'RGBA', 'RGBA', 'UNSIGNED_BYTE', imageLike)
+    ).toBe('ok');
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0][5]).toBe(imageLike);
+    expect(calls[1][5]).toBe(acceptedCanvas);
+    expect(drawCalls.some((call) => call[0] === 'drawImage' && call[1] === imageLike)).toBe(true);
+  });
+
+  it('falls back to RGBA bytes for data-url bootstrap images when canvas upload is also rejected', () => {
+    const calls: any[][] = [];
+    const sandbox: any = {};
+    const failingCanvas = {
+      width: 0,
+      height: 0,
+      getContext(type: string) {
+        if (type === 'webgl') return gl;
+        if (type !== '2d') return null;
+        return {
+          drawImage: () => {},
+        };
+      },
+    };
+
+    const GL = {
+      TEXTURE_2D: 3553,
+      RGBA: 6408,
+      UNSIGNED_BYTE: 5121,
+    };
+    const gl = {
+      ...GL,
+      texImage2D(...args: any[]) {
+        calls.push(args);
+        if (args.length === 6) {
+          throw new TypeError("Failed to execute 'texImage2D' on 'WebGLRenderingContext': Overload resolution failed.");
+        }
+        return 'bytes-ok';
+      },
+    };
+
+    sandbox.GameGlobal = sandbox;
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    sandbox.Map = Map;
+    sandbox.WeakSet = WeakSet;
+    sandbox.Proxy = Proxy;
+    sandbox.Uint8Array = Uint8Array;
+    sandbox.ArrayBuffer = ArrayBuffer;
+    sandbox.Promise = Promise;
+    sandbox.String = String;
+    sandbox.TextEncoder = TextEncoder;
+    sandbox.TextDecoder = TextDecoder;
+    sandbox.URL = class {
+      static createObjectURL() {
+        return '';
+      }
+      static revokeObjectURL() {}
+    };
+    sandbox.tt = {
+      createCanvas: () => failingCanvas,
+    };
+
+    vm.runInNewContext(POLYFILL_SRC, sandbox, { filename: 'tt-polyfill.js' });
+
+    const patchedGl = sandbox.tt.createCanvas().getContext('webgl');
+    const imageLike = {
+      tagName: 'IMG',
+      src: 'data:image/png;base64,abc',
+      width: 4,
+      height: 4,
+    };
+
+    expect(
+      patchedGl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, GL.RGBA, GL.UNSIGNED_BYTE, imageLike)
+    ).toBe('bytes-ok');
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toHaveLength(6);
+    expect(calls[1]).toHaveLength(6);
+    expect(calls[2]).toHaveLength(9);
+    expect(calls[2][3]).toBe(4);
+    expect(calls[2][4]).toBe(4);
+    expect(calls[2][8]).toBeInstanceOf(Uint8Array);
+  });
 });

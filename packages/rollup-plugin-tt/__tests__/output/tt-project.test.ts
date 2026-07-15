@@ -73,6 +73,78 @@ describe('generateTtProject', () => {
     expect(gameJs).toContain('window.canvas');
   });
 
+  it('game.js enables Phaser touch input before the engine loads', () => {
+    const config: TtProjectConfig = {
+      outputDir,
+      adapterPath,
+      orientation: 'portrait',
+      appid: 'ttabc1234567890',
+    };
+
+    generateTtProject(config);
+
+    const gameJs = fs.readFileSync(path.join(outputDir, 'game.js'), 'utf-8');
+    // Phaser detects touch via `'ontouchstart' in documentElement ||
+    // navigator.maxTouchPoints >= 1`. The official tt-adapter sets neither, so
+    // Phaser never creates its TouchManager and nothing is clickable. game.js
+    // must set these BEFORE the engine is required (device detection runs then).
+    expect(gameJs).toContain('navigator.maxTouchPoints = 10');
+    expect(gameJs).toContain('document.documentElement.ontouchstart = null');
+    // Must run before the engine require (where Phaser's device detection runs).
+    const touchIdx = gameJs.indexOf('navigator.maxTouchPoints = 10');
+    const engineIdx = gameJs.indexOf("require('engine/phaser-engine.min.js')");
+    expect(touchIdx).toBeGreaterThanOrEqual(0);
+    expect(engineIdx).toBeGreaterThan(touchIdx);
+  });
+
+  it('game.js provides document.elementFromPoint for the touch-move handler', () => {
+    const config: TtProjectConfig = {
+      outputDir,
+      adapterPath,
+      orientation: 'portrait',
+      appid: 'ttabc1234567890',
+    };
+
+    generateTtProject(config);
+
+    const gameJs = fs.readFileSync(path.join(outputDir, 'game.js'), 'utf-8');
+    // Phaser calls document.elementFromPoint on every touchmove; the official
+    // adapter omits it, so the handler throws and paddle/drag input dies.
+    expect(gameJs).toContain('document.elementFromPoint = function');
+    expect(gameJs).toContain('window.canvas');
+  });
+
+  it('game.js patches Audio to fire on<type> handlers and binds requestAnimationFrame', () => {
+    const config: TtProjectConfig = {
+      outputDir,
+      adapterPath,
+      orientation: 'portrait',
+      appid: 'ttabc1234567890',
+    };
+
+    generateTtProject(config);
+
+    const gameJs = fs.readFileSync(path.join(outputDir, 'game.js'), 'utf-8');
+    // Audio: Phaser sets audio.oncanplaythrough/onerror as properties; the
+    // adapter's dispatchEvent only calls addEventListener listeners, so patch
+    // Audio.prototype.dispatchEvent to also invoke the on<type> handler.
+    expect(gameJs).toContain('A.prototype.dispatchEvent');
+    expect(gameJs).toContain("'on' + event.type");
+    // Audio: the adapter's load() is a no-op; override it to emit canplaythrough
+    // so Phaser's audio-unlock flow (which calls tag.load()) completes.
+    expect(gameJs).toContain('A.prototype.load = function');
+    // Audio: guard the currentTime setter so Phaser's per-frame loop re-seek
+    // doesn't glitch InnerAudioContext (BGM static). Redundant seeks are skipped.
+    expect(gameJs).toContain("Object.defineProperty(A.prototype, 'currentTime'");
+    // Audio unlock: forward touch events to document.body (Phaser listens there).
+    expect(gameJs).toContain('document.body.dispatchEvent');
+    // Audio: prevent Phaser from locking audio (mini-game InnerAudioContext
+    // plays without a gesture) by removing window.ontouchstart.
+    expect(gameJs).toContain('delete window.ontouchstart');
+    // rAF: bind window.requestAnimationFrame from the bare global if missing.
+    expect(gameJs).toContain('w.requestAnimationFrame = requestAnimationFrame');
+  });
+
   it('generates game.json with correct orientation and defaults', () => {
     const config: TtProjectConfig = {
       outputDir,

@@ -69,6 +69,168 @@ require('./tt-adapter.js');
 //    usable Blob global). This EXTENDS the adapter; it does not modify it.
 require('./tt-polyfill.js');
 
+// 3. Enable Phaser's touch input.
+//    Phaser detects touch support via
+//      'ontouchstart' in document.documentElement || navigator.maxTouchPoints >= 1
+//    and, when false, sets config.inputTouch = false and NEVER creates its
+//    TouchManager — so none of the adapter's touch events reach the input
+//    system and nothing is clickable (Phaser's MouseManager only listens for
+//    mouse events, not the adapter's synthetic pointer events). The official
+//    tt-adapter sets neither signal, so we set them here (the WeChat adapter
+//    does the same via navigator.maxTouchPoints = 10). This must run BEFORE the
+//    engine is required, since Phaser's device detection runs at engine load.
+//    Done as an extension here; tt-adapter.js is not modified.
+(function () {
+  try {
+    if (typeof navigator !== 'undefined' && !navigator.maxTouchPoints) {
+      navigator.maxTouchPoints = 10;
+    }
+    if (typeof document !== 'undefined' && document.documentElement &&
+        !('ontouchstart' in document.documentElement)) {
+      document.documentElement.ontouchstart = null;
+    }
+  } catch (e) { /* if globals are read-only, Phaser falls back to its own detection */ }
+})();
+
+// 4. Provide document.elementFromPoint for Phaser's touch-move handler.
+//    Phaser's InputManager calls document.elementFromPoint(x, y) on every
+//    touchmove to test whether the pointer is over the canvas. The official
+//    tt-adapter does not implement it, so the handler throws
+//    ("document.elementFromPoint is not a function") on every move — the
+//    pointer position stops updating (drag/paddle input dies) and the repeated
+//    exceptions stutter the frame rate. The mini-game canvas is the only
+//    element, so return it (matches the WeChat adapter). tt-adapter.js is not
+//    modified.
+(function () {
+  try {
+    if (typeof document !== 'undefined' && typeof document.elementFromPoint !== 'function') {
+      document.elementFromPoint = function () {
+        return (typeof window !== 'undefined' && window.canvas) ||
+          (typeof GameGlobal !== 'undefined' && (GameGlobal.canvas || GameGlobal.screencanvas)) ||
+          null;
+      };
+    }
+  } catch (e) { /* leave input as-is if document is read-only */ }
+})();
+
+// 5. Make the adapter's Audio Phaser-compatible.
+//    (a) Phaser's HTML5 audio assigns PROPERTY callbacks (audio.oncanplaythrough
+//        = fn, onerror, onended, ...), but the adapter's Audio.dispatchEvent only
+//        invokes addEventListener listeners — the on<type> properties never fire,
+//        so audio never finishes loading and never plays.
+//    (b) The adapter's Audio.load() is a no-op, but Phaser's audio-unlock flow
+//        calls tag.load() and waits for oncanplaythrough to fire before it marks
+//        the audio unlocked. With an empty load() the unlock never completes.
+//    Patch both (the WeChat adapter's Audio does the same: fire on<type> + emit
+//    canplaythrough from load()). tt-adapter.js is not modified.
+(function () {
+  try {
+    var A = (typeof window !== 'undefined' && window.Audio) ||
+      (typeof GameGlobal !== 'undefined' && GameGlobal.Audio);
+    if (A && A.prototype && !A.prototype.__ttOnHandlerPatched) {
+      var _origDispatch = A.prototype.dispatchEvent;
+      A.prototype.dispatchEvent = function (event) {
+        event = event || {};
+        if (!event.target) { event.target = this; }
+        var r;
+        if (typeof _origDispatch === 'function') { r = _origDispatch.call(this, event); }
+        var on = 'on' + event.type;
+        if (typeof this[on] === 'function') { this[on](event); }
+        return r;
+      };
+      // load(): the InnerAudioContext loads on src assignment, so (re)emit
+      // canplaythrough asynchronously to complete Phaser's load / unlock.
+      A.prototype.load = function () {
+        var self = this;
+        var fire = function () { self.dispatchEvent({ type: 'canplaythrough' }); };
+        if (typeof setTimeout === 'function') { setTimeout(fire, 0); } else { fire(); }
+      };
+      // currentTime setter guard: Phaser's HTML5 loop manager sets
+      // audio.currentTime every frame; when duration reads as 0 (a sound played
+      // before it finished loading) it repeatedly seeks to ~the current
+      // position. On a real <audio> element that is a harmless no-op, but the
+      // adapter maps it to InnerAudioContext.seek(), which restarts playback
+      // each frame → continuous static/noise on looping BGM. Skip redundant
+      // seeks (target within 0.15s of the current time); genuine seeks (loop
+      // wrap to 0, markers) have a large delta and still go through.
+      var _ctDesc = Object.getOwnPropertyDescriptor(A.prototype, 'currentTime');
+      if (_ctDesc && typeof _ctDesc.set === 'function' && typeof _ctDesc.get === 'function') {
+        var _ctGet = _ctDesc.get, _ctSet = _ctDesc.set;
+        Object.defineProperty(A.prototype, 'currentTime', {
+          configurable: true,
+          enumerable: _ctDesc.enumerable,
+          get: _ctGet,
+          set: function (v) {
+            try {
+              var cur = _ctGet.call(this);
+              if (typeof v === 'number' && typeof cur === 'number' && Math.abs(v - cur) < 0.15) {
+                return; // redundant/degenerate seek — skip to avoid audio glitches
+              }
+            } catch (_) {}
+            _ctSet.call(this, v);
+          }
+        });
+      }
+      A.prototype.__ttOnHandlerPatched = true;
+    }
+  } catch (e) { /* leave audio as-is if not patchable */ }
+})();
+
+// 5b. Unlock Phaser's HTML5 audio. Phaser locks audio until a user gesture and
+//    listens for 'touchend' / 'touchmove' on document.body — but the adapter
+//    dispatches touch events to document, not document.body, so audio never
+//    unlocks and BGM/SFX never play. Forward touch events to document.body on
+//    the first gesture (the WeChat adapter bridges the same way).
+(function () {
+  try {
+    if (typeof document === 'undefined' || !document.body || !document.addEventListener) return;
+    ['touchend', 'touchmove'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        try { document.body.dispatchEvent(e || { type: type }); } catch (_) {}
+      });
+    });
+  } catch (e) { /* leave audio locked if document.body is unavailable */ }
+})();
+
+// 5c. Prevent Phaser from locking HTML5 audio in the first place.
+//    Phaser sets this.locked = ("ontouchstart" in window) and, when true, queues
+//    all sounds until a user-gesture "unlock". That gate exists for BROWSER
+//    autoplay policy — but a Douyin mini-game's InnerAudioContext plays without
+//    a gesture, so the lock only gets in the way (BGM played on scene create,
+//    before any tap, never starts). The adapter puts ontouchstart on the global,
+//    so remove it: ("ontouchstart" in window) becomes false and audio plays
+//    immediately. Touch INPUT detection is unaffected — it uses
+//    navigator.maxTouchPoints (set above), not window.ontouchstart. (#5/#5b
+//    remain as a fallback in case this delete is not permitted.)
+(function () {
+  try {
+    if (typeof window !== 'undefined' && ('ontouchstart' in window)) {
+      delete window.ontouchstart;
+    }
+  } catch (e) { /* fall back to the touch-to-body unlock bridge above */ }
+})();
+
+// 6. Ensure requestAnimationFrame / cancelAnimationFrame are on window.
+//    Phaser's game loop calls window.requestAnimationFrame with no fallback.
+//    Douyin exposes these as bare globals; on a real device the adapter aliases
+//    window to the global scope where they may not be own properties, so bind
+//    them explicitly (the WeChat adapter does the same). Drives the loop at the
+//    platform frame rate.
+(function () {
+  try {
+    var w = (typeof window !== 'undefined') ? window
+      : (typeof GameGlobal !== 'undefined') ? GameGlobal : this;
+    if (w && typeof w.requestAnimationFrame !== 'function' &&
+        typeof requestAnimationFrame === 'function') {
+      w.requestAnimationFrame = requestAnimationFrame;
+    }
+    if (w && typeof w.cancelAnimationFrame !== 'function' &&
+        typeof cancelAnimationFrame === 'function') {
+      w.cancelAnimationFrame = cancelAnimationFrame;
+    }
+  } catch (e) { /* loop falls back to whatever the runtime provides */ }
+})();
+
 // --- Stage 1: Splash screen (WebGL) + engine download ---
 var _engineReady = false;
 var _booted = false;
