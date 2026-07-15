@@ -21,7 +21,6 @@ const ROW_COLORS = [
 // 60Hz), so these are roughly the old Arcade px/second values divided by 60.
 const BALL_LAUNCH_VY = -8.5;   // upward launch speed  (~-510 px/s)
 const BALL_LAUNCH_VX = 3.5;    // horizontal launch spread (±210 px/s)
-const BALL_MIN_SPEED = 8;      // enforced speed on paddle bounce (~480 px/s)
 const BALL_MAX_SPEED = 13;     // speed cap (~780 px/s)
 const BALL_MIN_VY = 1.4;       // avoid near-horizontal trajectories (~84 px/s)
 
@@ -270,30 +269,12 @@ export class GameScene extends Phaser.Scene {
   // ────────────────────────────────────────────
 
   hitPaddle(ball, paddle) {
+    // Pure Matter physics: the ball is perfectly elastic (restitution: 1) and
+    // the paddle is a static body, so Matter reflects the ball off the paddle
+    // by itself — exactly like the walls and bricks. We only play the sound and
+    // do NOT override the velocity, so the bounce follows real reflection
+    // (angle of incidence = angle of reflection).
     this.sound.play('ball_hit', { volume: 0.3 });
-
-    const v = ball.body.velocity;
-    const speed = Math.max(Math.sqrt(v.x * v.x + v.y * v.y), BALL_MIN_SPEED);
-
-    // Physical reflection off the paddle's flat top: the vertical component
-    // flips to point upward while the HORIZONTAL component keeps its incoming
-    // direction — so a ball approaching at an angle never bounces straight back
-    // the way it came. Where the ball strikes the paddle then adds some steering
-    // ("English") for control, layered on top of the preserved direction rather
-    // than replacing it.
-    const diff = ball.x - paddle.x;
-    const norm = Phaser.Math.Clamp(diff / (paddle.width / 2), -1, 1);
-
-    let vx = v.x + norm * speed * 0.5;   // preserved horizontal + hit steering
-    let vy = -Math.abs(v.y);             // reflected upward
-
-    // Keep a sensible upward angle so the ball never skims horizontally.
-    const minVy = speed * 0.35;
-    if (vy > -minVy) vy = -minVy;
-
-    // Renormalize so the bounce preserves the ball's speed.
-    const mag = Math.sqrt(vx * vx + vy * vy) || 1;
-    ball.setVelocity((vx / mag) * speed, (vy / mag) * speed);
   }
 
   hitBrick(ball, brick) {
