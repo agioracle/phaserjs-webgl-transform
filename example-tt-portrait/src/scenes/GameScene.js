@@ -103,14 +103,6 @@ export class GameScene extends Phaser.Scene {
     this.ball.setCircle(16, { restitution: 1, friction: 0, frictionAir: 0 });
     this.ball.setFixedRotation();
 
-    // Subtle glow behind the ball.
-    // A circle GameObject builds its geometry once; the update loop only moves
-    // it (setPosition), unlike a Graphics that must clear + refill every frame.
-    // That per-frame Graphics rebuild is disproportionately expensive on the
-    // Douyin iOS renderer, so keep the glow as a static, movable shape.
-    this.ballGlow = this.add.circle(this.ball.x, this.ball.y, 26, 0xffc23a, 0.25);
-    this.ballGlow.setDepth(this.ball.depth - 1);
-
     // ── Bricks ──
     this.bricks = new Set();          // set of active brick GameObjects
     this.brickVisuals = new Map();    // brick GameObject -> Graphics
@@ -279,17 +271,29 @@ export class GameScene extends Phaser.Scene {
 
   hitPaddle(ball, paddle) {
     this.sound.play('ball_hit', { volume: 0.3 });
+
+    const v = ball.body.velocity;
+    const speed = Math.max(Math.sqrt(v.x * v.x + v.y * v.y), BALL_MIN_SPEED);
+
+    // Physical reflection off the paddle's flat top: the vertical component
+    // flips to point upward while the HORIZONTAL component keeps its incoming
+    // direction — so a ball approaching at an angle never bounces straight back
+    // the way it came. Where the ball strikes the paddle then adds some steering
+    // ("English") for control, layered on top of the preserved direction rather
+    // than replacing it.
     const diff = ball.x - paddle.x;
     const norm = Phaser.Math.Clamp(diff / (paddle.width / 2), -1, 1);
-    const angle = norm * 60;
-    const speed = Math.max(
-      Math.sqrt(ball.body.velocity.x ** 2 + ball.body.velocity.y ** 2),
-      BALL_MIN_SPEED
-    );
-    const rad = Phaser.Math.DegToRad(angle - 90);
-    // angle-90 stays in [-150,-30] so sin() is always negative → ball always
-    // goes upward, which also prevents it from sticking to the paddle.
-    ball.setVelocity(Math.cos(rad) * speed, Math.sin(rad) * speed);
+
+    let vx = v.x + norm * speed * 0.5;   // preserved horizontal + hit steering
+    let vy = -Math.abs(v.y);             // reflected upward
+
+    // Keep a sensible upward angle so the ball never skims horizontally.
+    const minVy = speed * 0.35;
+    if (vy > -minVy) vy = -minVy;
+
+    // Renormalize so the bounce preserves the ball's speed.
+    const mag = Math.sqrt(vx * vx + vy * vy) || 1;
+    ball.setVelocity((vx / mag) * speed, (vy / mag) * speed);
   }
 
   hitBrick(ball, brick) {
@@ -333,9 +337,6 @@ export class GameScene extends Phaser.Scene {
     // Sync paddle visual with its physics rect
     this.paddleGfx.x = this.paddle.x;
     this.paddleGfx.y = this.paddle.y;
-
-    // Ball glow follow — just move the static circle (no per-frame redraw)
-    this.ballGlow.setPosition(this.ball.x, this.ball.y);
 
     // Ball fell below screen
     if (this.ball.y > this.cameras.main.height + 20) {
