@@ -103,8 +103,12 @@ export class GameScene extends Phaser.Scene {
     this.ball.setCircle(16, { restitution: 1, friction: 0, frictionAir: 0 });
     this.ball.setFixedRotation();
 
-    // Subtle glow behind the ball
-    this.ballGlow = this.add.graphics();
+    // Subtle glow behind the ball.
+    // A circle GameObject builds its geometry once; the update loop only moves
+    // it (setPosition), unlike a Graphics that must clear + refill every frame.
+    // That per-frame Graphics rebuild is disproportionately expensive on the
+    // Douyin iOS renderer, so keep the glow as a static, movable shape.
+    this.ballGlow = this.add.circle(this.ball.x, this.ball.y, 26, 0xffc23a, 0.25);
     this.ballGlow.setDepth(this.ball.depth - 1);
 
     // ── Bricks ──
@@ -330,10 +334,8 @@ export class GameScene extends Phaser.Scene {
     this.paddleGfx.x = this.paddle.x;
     this.paddleGfx.y = this.paddle.y;
 
-    // Ball glow follow
-    this.ballGlow.clear();
-    this.ballGlow.fillStyle(0xffc23a, 0.25);
-    this.ballGlow.fillCircle(this.ball.x, this.ball.y, 26);
+    // Ball glow follow — just move the static circle (no per-frame redraw)
+    this.ballGlow.setPosition(this.ball.x, this.ball.y);
 
     // Ball fell below screen
     if (this.ball.y > this.cameras.main.height + 20) {
