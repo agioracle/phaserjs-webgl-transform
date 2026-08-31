@@ -1,0 +1,17 @@
+{
+  "name": "phaser-tt-example",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve public",
+    "build": "phaser-tt build",
+    "build:h5": "phaser-tt build --target h5",
+    "preview:h5": "phaser-tt build --target h5 && npx serve dist-h5"
+  },
+  "dependencies": {
+    "phaser": "^3.80.0"
+  },
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}

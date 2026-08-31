@@ -1,0 +1,34 @@
+{
+  "appid": "tt1234567890abcdef",
+  "orientation": "portrait",
+  "cdn": "https://cdn.example.com",
+  "entry": "src/main.js",
+  "assets": {
+    "dir": "public/assets",
+    "remoteAssetsDir": "public/remote-assets",
+    "remoteSizeThreshold": 204800
+  },
+  "output": {
+    "dir": "dist-tt"
+  },
+  "subpackages": [
+    {
+      "name": "menu",
+      "root": "menu/",
+      "entry": "src/scenes/MenuScene.js",
+      "outputFile": "menu-scene.js"
+    },
+    {
+      "name": "game-play",
+      "root": "game-play/",
+      "entry": "src/scenes/GameScene.js",
+      "outputFile": "game-scene.js"
+    },
+    {
+      "name": "game-over",
+      "root": "game-over/",
+      "entry": "src/scenes/GameOverScene.js",
+      "outputFile": "game-over-scene.js"
+    }
+  ]
+}
